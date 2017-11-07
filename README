@@ -1,0 +1,235 @@
+                      README for sg3_utils_lib
+                      ========================
+Introduction
+============
+This package is a helper for supplying the header and library files
+sufficient to build the library for the sg3_utils package. The sg3_utils
+pacakage contains low level utilities for devices that use the SCSI
+command set. Several other SCSI based utilities use this library
+associated with sg3_utils, for example sdparm and ddpt.
+
+The author does his development using subversion and uses revision based
+externals in sdparm and ddpt to include and lib directories in the
+sg3_utils package. The git source code control system (as used by
+github) does not properly handle externals when importing from a
+subversion repositories. In the case of github it just ignores the
+directories marked as externals in sdparm and ddpt. So github users will
+need at a minimum this package (i.e. sg3_utils_lib) to populate this
+missing directories in sdparm and ddpt, at least until a better solution
+is found.
+
+The author's sg3_utils package is available on github at:
+    https://github.com/hreinecke/sg3_utils
+Those pages belong to Hannes Reinecke of Suse. He is a major contributor
+to sg3_utils and has been the main focal point for sg3_utils feedback
+for over a year. The author's lsscsi package is also found there:
+   https://github.com/hreinecke/lsscsi
+
+The intention is to make the sg3_utils_lib package available, at least
+temporarily, in the author's github area. At this time that will make
+four packages (repositories) there:
+   https://github.com/doug-gilbert/sdparm
+   https://github.com/doug-gilbert/ddpt
+   https://github.com/doug-gilbert/smp_utils
+   https://github.com/doug-gilbert/sg3_utils_lib
+
+The smp_utils package (SMP is the management protocol for SAS - the Serial
+Attached SCSI transport) is freestanding and should build as is. However
+the sdparm and ddpt pacakes will not build due to their missing include
+and lib directories. Those can be found in the sg3_utils_lib package.
+
+The rest of this readme is an edited version of the file found in the
+sg3_utils package.
+
+
+This package originally targeted the Linux SCSI subsystem. Since most
+operating systems contain a SCSI command pass-through mechanism, many
+utilities within this package have been ported. This README mainly
+concentrates on Linux: see the README.freebsd file for the FreeBSD port,
+README.solaris for the Solaris port, the README.tru64 file for the Tru64
+(OSF) port and README.win32 for the Windows ports (of which there are two
+variants).
+
+Description
+===========
+A web site supporting the sg3_utils package can be found at
+http://sg.danny.cz/sg/sg3_utils.html . That page has a table of released
+versions for download. The most recent release or beta of sg3_utils may
+be found on this page: https://github.com/hreinecke/sg3_utils
+
+In sg3_utils version 1.27 support has been added for the Linux bsg driver
+which use the sg version 4 interface. There seems no point in renaming
+this package sg4_utils. The existing utilities just silently support either.
+Currently the source build must be able to see the /usr/include/linux/bsg.h
+file. Then at run time the /proc/devices pseudo file needs to have an entry
+for the bsg driver (appeared around lk 2.6.28). With this in place each
+utility at run time checks the device it has been given and if it is a char
+device whose major number matches the bsg entry in /proc/devices then the
+sg v4 interface is used. Otherwise the sg v3 interface is used.
+
+If users have problems or questions about them please contact the author.
+Documentation for the Linux sg device driver can be found at:
+http://sg.danny.cz/sg/p/sg_v3_ho.html . This is written in DocBook and the
+original xml can be found in the same directory with the ".xml" extension.
+Postscript and pdf renderings are also in that directory. Older documentation
+for the sg version 3 driver can be found at:
+http://sg.danny.cz/sg/p/scsi_generic_v3.txt .
+
+All utilities are either "GPL"-ed or have a FreeBSD license. The author's
+intention is that users may incorporate all or part of the code in their work
+as they please. Attribution is encouraged. Please check the code as other
+contributors (apart from the author) may also have copyright notices. For a
+list of contributors see the CREDITS file.
+
+To save the repetition of common code (e.g. SCSI error processing) and
+reduce the size of the executable files, a shared library called
+libsgutils<num>.so (its Linux name) is created during the build process.
+That library is built from the contents of the include and lib
+subdirectories. The header files in the include subdirectory can be seen
+as the API of libsgutils and are commented with that in mind. The SCSI
+pass-through code for the supported operating systems is found in the lib
+subdirectory with names like sg_pt_linux.c and sg_pt_win32.c .
+
+Various distributions (of Linux mainly) distribute sg3_utils as 3
+installable packages. One is a package containing the shared library
+discussed above (e.g. libsgutils2-2_1.33-0.1_i386.deb). A second package
+contains the utilities (e.g. sg3-utils_1.33-0.1_i386.deb) and depends on the
+first package). Finally there is an optional package that contains header
+files and a static library (e.g. libsgutils2-dev_1.33-0.1_i386.deb). This
+final package is only needed to build other packages (e.g. sdparm) that
+wish to use the sg3_utils shared library.
+
+In Linux some sg driver ioctls (notably SG_IO) are defined for many block
+devices in lk 2.6 series. In practice this means all SCSI block devices,
+ATAPI block devices (mainly CD, DVD and BD optical devices) but _not_ ATA
+disks, depending on which kernel configuration options, can be accessed by
+the utilities in this package. SATA disks that use the libata kernel library
+(or some other SCSI to ATA Translation (SAT) Layer (SATL)) accept SCSI
+commands and thus are supported. Support for the SG_IO as been added to the
+scsi tape driver (st) in lk 2.6.6 .
+
+C standard is C99
+==================
+The C code in this package is written for portability rather than speed.
+It assumes a level of C99 compliance and favours POSIX system and library
+calls over OS specific calls.
+
+The C code is written in a C++ friendly way and is checked from time to
+time that it compiles clean with C++. To accommodate C++ certain C99
+constructs such as designated initializers cannot be used.
+
+Building
+========
+This package is designed to be built with the usual:
+    "./configure ; make ; make install"
+sequence. In some situations that may need to be prefixed by a call to
+the "./autogen.sh" script which invokes autoconf and automake. That in turn
+may require packages containing those utilities to be installed. The
+libtool utility is also required. Naturally a C compiler is required
+and due to the vagaries of libtool a C++ compiler also.
+
+The "./configure" takes many command line options with the defaults
+being usually sufficient to start with. One quirk is that the location
+of the installation is under the /usr/local directory. So the sg_inq
+utility will be installed at /usr/local/bin/sg_inq . This is controlled
+by the "--prefix=<directory>" option which defaults to
+"--prefix=/usr/local". As an example to install the executables in /usr/bin
+and disable the creation of the shared library (libsgutils<num>.so) this
+invocation could be used: "./configure --prefix=/usr --disable-shared".
+To reduce the size of an executable as well try this:
+"./configure --prefix=/usr --disable-shared --disable-scsistrings".
+
+Warning
+=======
+Many devices use SCSI command sets over transport protocols not normally
+associated with SCSI (as defined at http://www.t10.org ). Some of these
+devices react poorly (e.g. lock up) when sent SCSI commands that they don't
+support. Even sending a supported SCSI command with a field set to an
+unexpected value can cause problems. [The author is talking about billions
+of USB devices with horrible SCSI implementations.]
+
+For example, all "SCSI" devices must support the INQUIRY command which the
+SCSI-2 standard says should request a 36 byte response. However later SCSI
+standards (e.g. SPC-2) have increased that length but some SCSI devices lock
+up when they receive a request for anything other than a 36 byte response.
+
+Any well implemented "SCSI" device should react sensibly when a utility in
+sg3_utils sends a SCSI command that it doesn't support. Unfortunately this
+cannot be guaranteed.
+
+Prior to lk 2.6.29 USB mass storage limited sense data to 18 bytes which
+caused problems for certain types of descriptor based sense data. An
+example of this is the SCSI ATA PASS-THROUGH command with the CK_COND bit
+set.
+
+
+Dangerous code
+==============
+This C code snippet:
+    unsigned char uc = 0x80;
+    uint64_t ull;
+    ull = (uc << 24);
+Somewhat surprisingly sets ull to:
+    ull: 0xffffffff80000000
+This result is due to the 'unary conversion' of uc to a (32 bit signed)
+'int' before the shift. The resultant type from the shift is also an int
+and it has its top bit set so there is sign extension when it is assigned
+into a 64 bit unsigned integer. Making sure there is no conversion to 'int'
+solves the problem. In this case if uc is declared as unsigned int the
+result will be as expected (i.e. 0x80000000).
+
+
+Bypassing the somewhat dangerous shift operators
+================================================
+The shift operators in C are "<<" and ">>". They can be dangerous (as shown
+in the above section) or tedious and hence error prone to use. However they
+are often needed to cope with the translation of integers on the host OS to
+the corresponding representation within a SCSI command or parameter data
+moved to or from a SCSI device. The Logical Block Address (LBA) is a good
+example; it is either 32 or 64 bits long typically (i.e. 4 or 8 bytes
+respectively). The host machine representation may be big or little endian
+and may prefer or require alignment to a particular memory address boundary
+(e.g. module 4 (or in 'C' code: "(lba % 4) == 0")). For SCSI commands and
+the parameter data moved to or from a SCSI device, the integer
+representation is big endian and it is unaligned.
+
+Recent versions of this package have replaced the explicit use of the C
+shift operators with a group of functions modelled on those found in the
+Linux kernel. These functions contain either "get_unaligned" or
+"put_unaligned" in their names and are found in the asm/unaligned.h
+header. This package contains the sg_unaligned.h header that implements
+a similar set of functions. The current implementation favours correctness
+over speed. The functions in the package use a "sg_" prefix but otherwise
+use the same function name as the Linux kernel for the same action.
+
+An example of the change made to a snippet of sg_write_buffer.c may
+clarify this change. The old code was:
+
+   wbufCmdBlk[3] = (unsigned char)((buffer_offset >> 16) & 0xff);
+   wbufCmdBlk[4] = (unsigned char)((buffer_offset >> 8) & 0xff);
+   wbufCmdBlk[5] = (unsigned char)(buffer_offset & 0xff);
+
+and it has been replaced by:
+
+   sg_put_unaligned_be24(buffer_offset, wbufCmdBlk + 3);
+
+The Linux kernel only supplies "unaligned" functions for 16, 32 and 64
+bit quantities. SCSI commands also have cases of 24 and 48 bit numbers
+so sg_unaligned.h contains support for those plus a variant where the
+bit length is passed as an argument.
+
+Associated with the above change fixed length integer types seem a better
+fit for SCSI command and parameter integers than the traditional integer
+types in the C language. Fixed length integer types were standardized in
+C99 and require the inclusion of <stdint.h>. For example this means for
+an integer that will represent a 64 bit LBA, to favour using "uint64_t"
+over the "unsigned long long" type.
+
+
+Other SCSI and storage tools
+============================
+See http://sg.danny.cz/sg/tools.html
+
+
+Douglas Gilbert
+6th November 2017

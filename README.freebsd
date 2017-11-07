@@ -1,0 +1,69 @@
+Introduction
+============
+The FreeBSD port of sg3_utils contains those utilities that are _not_
+specific to Linux. In some cases the FreeBSD camcontrol command supplies
+similar functionality; for example 'sg_map' is similar to
+'camcontrol devlist'.
+
+The dd variants from the sg3_utils package (e.g. sg_dd) rely on too many
+Linux idiosyncrasies to be easily ported. A new package called 'ddpt'
+contains a utility with similar functionality to sg_dd and ddpt is available
+for FreeBSD.
+
+The library can be built from the source code in
+the tarball and installed with the familiar
+"./configure ; make ; make install" sequence. If this fails try
+running the "./autogen.sh" script prior to that sequence. There
+are generic instruction on configure and friend in the INSTALL file.
+
+Device naming
+=============
+In FreeBSD disks have block names like '/dev/da0' with a corresponding
+pass-through device name like '/dev/pass0'. Use this command
+"camcontrol devlist" to see that SCSI devices available.
+
+FreeBSD installation
+====================
+The traditional './configure ; make ; make install' sequence from the
+top level of the unpacked tarball will work on FreeBSD.
+
+FreeBSD 9.0 has a "ports" entry for sg3_utils under the
+/usr/ports/sysutils directory. It points to version 1.28 of sg3_utils
+which is now a bit dated. It could be used as a template to point
+to more recent versions.
+
+Details
+=======
+Most of the ported utilities listed above use SCSI command functions
+declared in sg_cmds_*.h headers . Those SCSI command functions are
+implemented in the corresponding ".c" files. The ".c" files pass SCSI
+commands to the host operating system via an interface declared in sg_pt.h .
+There are currently five implementations of that interface depending on
+the host operating system:
+  - sg_pt_linux.c
+  - sg_pt_freebsd.c
+  - sg_pt_osf1.c  [Tru64]
+  - sg_pt_win32.c
+  - sg_pt_solaris.c
+
+The sg_pt_freebsd.c file uses the FreeBSD CAM SCSI pass through mechanism.
+Hence only FreeBSD device nodes that support CAM can be used. These can be
+viewed with the "camcontrol devlist" command. To access ATAPI devices (e.g.
+ATAPI DVD drives) the kernel may need to be configured with the "atapicam"
+device.
+
+Attempts to send SCSI commands with data-in or data-out buffers around 64 KB
+and larger failed on a FreeBSD 7.0 with an "argument list too long" error
+message. There is an associated kernel message (viewable with dmesg) that an
+attempt has been made to map <n> bytes which is greater than
+DFLTPHYS(65536). Still a problem in FreeBSD 8.1 . Due to CAM overhead the
+largest power of 2 that can fit through with one command is 32768 bytes (32
+KB).
+
+FreeBSD 9.0 is the most recent version of FreeBSD tested with these
+utilities.
+
+
+
+Douglas Gilbert
+6th November 2017

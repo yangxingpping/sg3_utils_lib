@@ -1,0 +1,37 @@
+Introduction
+============
+The Tru64 port of sg3_utils_lib contains headers and lib files
+that are _not_ specific to Linux.
+
+This package uses autotools infrastructure with the now common
+"./configure ; make ; make install" sequence needed to build and install
+from the source found in the tarball. If the "./configure" sequence
+fails try using the ./autogen.sh prior to that sequence.
+
+Details
+=======
+Most of the ported utilities listed above use SCSI command functions
+declared in sg_cmds_*.h headers . Those SCSI command functions are
+implemented in the corresponding ".c" files. The ".c" files pass SCSI
+commands to the host operating system via an interface declared in sg_pt.h .
+There are currently five implementations of that interface depending on
+the host operating system:
+system:
+  - sg_pt_linux.c
+  - sg_pt_osf1.c  [Tru64]
+  - sg_pt_freebsd.c
+  - sg_pt_solaris.c
+  - sg_pt_win32.c
+
+The sg_pt_osf1.c file uses the Tru64 CAM SCSI pass through mechanism.
+
+Tru64 does not have general library support for "long" options
+(e.g. "--verbose") which are used extensively by most of the
+utilities in this package. Rather than change all the utilities
+and their man/web pages a local implementation of the missing
+function "getopt_long()" has been placed in the "getopt_long"
+subdirectory. Currently only the Tru64 port uses it.
+
+
+Douglas Gilbert
+6th November 2017
