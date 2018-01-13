@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2017 Douglas Gilbert.
+ * Copyright (c) 1999-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
@@ -20,14 +20,15 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
-#include "sg_lib.h"
-#include "sg_cmds_basic.h"
-#include "sg_pt.h"
-#include "sg_unaligned.h"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include "sg_lib.h"
+#include "sg_cmds_basic.h"
+#include "sg_pt.h"
+#include "sg_unaligned.h"
 
 /* Needs to be after config.h */
 #ifdef SG_LIB_LINUX
@@ -35,7 +36,7 @@
 #endif
 
 
-static const char * const version_str = "1.77 20171030";
+static const char * const version_str = "1.79 20180112";
 
 
 #define SENSE_BUFF_LEN 64       /* Arbitrary, could be larger */
@@ -482,7 +483,7 @@ sg_simple_inquiry(int sg_fd, struct sg_simple_inquiry_resp * inq_data,
  * an argument to set it has been removed (use the REPORT SUPPORTED OPERATION
  * CODES command instead). Adds the ability to set the command abort timeout
  * and the ability to report the residual count. If timeout_secs is zero
- * or less the the default command abort timeout (60 seconds) is used.
+ * or less the default command abort timeout (60 seconds) is used.
  * If residp is non-NULL then the residual value is written where residp
  * points. A residual value of 0 implies mx_resp_len bytes have be written
  * where resp points. If the residual value equals mx_resp_len then no
@@ -739,3 +740,5 @@ sg_ll_report_luns(int sg_fd, int select_report, void * resp, int mx_resp_len,
     destruct_scsi_pt_obj(ptvp);
     return ret;
 }
+
+

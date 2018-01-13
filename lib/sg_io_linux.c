@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2016 Douglas Gilbert.
+ * Copyright (c) 1999-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
@@ -254,3 +254,5 @@ sg_err_category_new(int scsi_status, int host_status, int driver_status,
 }
 
 #endif  /* if SG_LIB_LINUX defined */
+
+

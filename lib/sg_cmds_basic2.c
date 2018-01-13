@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2017 Douglas Gilbert.
+ * Copyright (c) 1999-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
@@ -19,14 +19,15 @@
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
-#include "sg_lib.h"
-#include "sg_cmds_basic.h"
-#include "sg_pt.h"
-#include "sg_unaligned.h"
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include "sg_lib.h"
+#include "sg_cmds_basic.h"
+#include "sg_pt.h"
+#include "sg_unaligned.h"
 
 
 
@@ -348,7 +349,7 @@ sg_ll_mode_sense10(int sg_fd, bool llbaa, bool dbd, int pc, int pg_code,
  * various SG_LIB_CAT_* positive values or -1 -> other errors.
  * Adds the ability to set the command abort timeout
  * and the ability to report the residual count. If timeout_secs is zero
- * or less the the default command abort timeout (60 seconds) is used.
+ * or less the default command abort timeout (60 seconds) is used.
  * If residp is non-NULL then the residual value is written where residp
  * points. A residual value of 0 implies mx_resp_len bytes have be written
  * where resp points. If the residual value equals mx_resp_len then no
@@ -682,6 +683,7 @@ sg_get_mode_page_controls(int sg_fd, bool mode6, int pg_code, int sub_pg_code,
         m = sg_msense_calc_length(buff, msense10_hlen, mode6, NULL) - resid;
         if (m < 0)      /* Grrr, this should not happen */
             m = 0;
+        *reported_lenp = m;
     }
     resp_mode6 = mode6;
     if (flexible) {
@@ -773,7 +775,7 @@ sg_ll_log_sense(int sg_fd, bool ppc, bool sp, int pc, int pg_code,
  * various SG_LIB_CAT_* positive values or -1 -> other errors.
  * Adds the ability to set the command abort timeout
  * and the ability to report the residual count. If timeout_secs is zero
- * or less the the default command abort timeout (60 seconds) is used.
+ * or less the default command abort timeout (60 seconds) is used.
  * If residp is non-NULL then the residual value is written where residp
  * points. A residual value of 0 implies mx_resp_len bytes have be written
  * where resp points. If the residual value equals mx_resp_len then no
@@ -1030,3 +1032,5 @@ sg_ll_prevent_allow(int sg_fd, int prevent, bool noisy, int verbose)
     destruct_scsi_pt_obj(ptvp);
     return ret;
 }
+
+

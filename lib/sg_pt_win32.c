@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2006-2017 Douglas Gilbert.
+ * Copyright (c) 2006-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
  */
 
-/* sg_pt_win32 version 1.18 20171030 */
+/* sg_pt_win32 version 1.20 20180104 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,13 +16,14 @@
 #include <ctype.h>
 #include <fcntl.h>
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "sg_pt.h"
 #include "sg_lib.h"
 #include "sg_pt_win32.h"
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #ifndef O_EXCL
 // #define O_EXCL 0x80  // cygwin ??
@@ -59,7 +60,7 @@
 #define WIN32_FDOFFSET 32
 
 struct sg_pt_handle {
-    int in_use;
+    bool in_use;
     HANDLE fh;
     char adapter[32];
     int bus;
@@ -71,9 +72,10 @@ struct sg_pt_handle {
 static struct sg_pt_handle handle_arr[MAX_OPEN_SIMULT];
 
 struct sg_pt_win32_scsi {
-    unsigned char * dxferp;
+    bool is_nvme;
+    bool mdxfer_out;    /* direction of metadata xfer, true->data-out */
+    bool scsi_dsense;   /* SCSI "descriptor" sense format, active when true */
     int dxfer_len;
-    unsigned char * sensep;
     int sense_len;
     int scsi_status;
     int resid;
@@ -81,6 +83,12 @@ struct sg_pt_win32_scsi {
     int in_err;
     int os_err;                 /* pseudo unix error */
     int transport_err;          /* windows error number */
+    int dev_fd;                 /* -1 for no "file descriptor" given */
+    uint32_t mdxfer_len;
+    uint32_t nvme_nsid;         /* Valid range: 1 to 0xfffffffe */
+    unsigned char * dxferp;
+    unsigned char * mdxferp;    /* NVMe has metadata buffer */
+    unsigned char * sensep;
     union {
         SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER swb_d;
         /* Last entry in structure so data buffer can be extended */
@@ -170,14 +178,14 @@ scsi_pt_open_flags(const char * device_name, int flags, int verbose)
     share_mode = (O_EXCL & flags) ? 0 : (FILE_SHARE_READ | FILE_SHARE_WRITE);
     /* lock */
     for (k = 0; k < MAX_OPEN_SIMULT; k++)
-        if (0 == handle_arr[k].in_use)
+        if (! handle_arr[k].in_use)
             break;
     if (k == MAX_OPEN_SIMULT) {
         if (verbose)
             pr2ws("too many open handles (%d)\n", MAX_OPEN_SIMULT);
         return -EMFILE;
     } else
-        handle_arr[k].in_use = 1;
+        handle_arr[k].in_use = true;
     /* unlock */
     index = k;
     shp = handle_arr + index;
@@ -210,7 +218,7 @@ scsi_pt_open_flags(const char * device_name, int flags, int verbose)
                     if (verbose)
                         pr2ws("expected format like: "
                               "'SCSI<port>:<bus>.<target>[.<lun>]'\n");
-                    shp->in_use = 0;
+                    shp->in_use = false;
                     return -EINVAL;
                 }
                 got_scsi_name = 1;
@@ -238,7 +246,7 @@ scsi_pt_open_flags(const char * device_name, int flags, int verbose)
         if (verbose)
             pr2ws("Windows CreateFile error=%u\n",
                   (unsigned int)GetLastError());
-        shp->in_use = 0;
+        shp->in_use = false;
         return -ENODEV;
     }
     return index + WIN32_FDOFFSET;
@@ -257,7 +265,6 @@ scsi_pt_close_device(int device_fd)
     int index;
 
     index = device_fd - WIN32_FDOFFSET;
-
     if ((index < 0) || (index >= WIN32_FDOFFSET))
         return -ENODEV;
     shp = handle_arr + index;
@@ -267,13 +274,84 @@ scsi_pt_close_device(int device_fd)
     shp->target = 0;
     shp->lun = 0;
     memset(shp->adapter, 0, sizeof(shp->adapter));
-    shp->in_use = 0;
+    shp->in_use = false;
     shp->verbose = 0;
     return 0;
 }
 
+int
+check_pt_file_handle(int device_fd, const char * device_name, int verbose)
+{
+    int index;
+    const char * dnp = device_name ? device_name : "<empty>";
+    struct sg_pt_handle * shp;
+#if 0
+/* According to MSDN including <WinIoCtl.h> should define the following.
+ * At least when building under MinGW it doesn't, so comment out for now. */
+    STORAGE_PROPERTY_QUERY spq;
+    STORAGE_DESCRIPTOR_HEADER storageDescriptorHeader = {0};
+    DWORD bytes_ret = 0;
+    STORAGE_DESCRIPTOR_HEADER sdh = {0};
+#endif
+
+    if (verbose > 3)
+        pr2ws("%s: device_name: %s\n", __func__, dnp);
+    index = device_fd - WIN32_FDOFFSET;
+    if ((index < 0) || (index >= WIN32_FDOFFSET))
+        return -ENODEV;
+    shp = handle_arr + index;
+    if (! shp->in_use) {
+        pr2ws("%s: device_fd (%s) not in_use ??\n", __func__, dnp);
+        return -ENODEV;
+    }
+#if 0
+    /* test code from: http://codexpert.ro/blog/2013/10/26/get-
+     * physical-drive-serial-number-part-1/ */
+    memset(&spq, 0, sizeof(spq));
+    spq.PropertyId = StorageDeviceProperty;
+    spq.QueryType = PropertyStandardQuery;
+    if(! DeviceIoControl(shp->fh, IOCTL_STORAGE_QUERY_PROPERTY,
+                         &spq, sizeof(spq),
+                         &sdh, sizeof(sdh), &bytes_ret, NULL)) {
+        uint32_t u;
+
+        u = (uint32_t)GetLastError();
+        if (verbose)
+            pr2ws("%s: Windows DeviceIoControl error=%u\n", __func__, u);
+        return -EIO;       /* let app find transport error */
+    } else {
+        const DWORD out_buff_sz = sdh.Size;
+        uint8_t * outp;
+
+        outp = calloc(out_buff_sz, 1);
+        if (NULL == outp) {
+            pr2ws("%s: out of memory\n", __func__);
+            return -ENOMEM;
+        }
+        if(! DeviceIoControl(shp->fh, IOCTL_STORAGE_QUERY_PROPERTY,
+                            &spq, sizeof(spq),
+                            outp, out_buff_sz, &bytes_ret, NULL)) {
+            uint32_t u = (uint32_t)GetLastError();
+
+            if (verbose)
+                pr2ws("%s: DeviceIoControl 2 error=%u\n", __func__, u);
+            return -EIO;       /* let app find transport error */
+        } else {
+            STORAGE_DEVICE_DESCRIPTOR* ddp = (STORAGE_DEVICE_DESCRIPTOR*)outp;
+            const DWORD sn_off = ddp->SerialNumberOffset;
+
+            if (sn_off > 0)
+                pr2ws("%s: serial number: %.60s\n", __func__, outp + sn_off);
+        }
+    }
+#endif
+// xxxxxxxxxxxxx more code required <<<<<<<<<<<<<<<<
+    return 1;   /* SCSI generic pass-though device */
+}
+
+
 struct sg_pt_base *
-construct_scsi_pt_obj()
+construct_scsi_pt_obj_with_fd(int dev_fd, int verbose)
 {
     struct sg_pt_win32_scsi * psp;
     struct sg_pt_base * vp = NULL;
@@ -300,13 +378,23 @@ construct_scsi_pt_obj()
                 offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS, ucSenseBuf);
             psp->swb_i.spt.TimeOutValue = DEF_TIMEOUT;
         }
+        psp->dev_fd = (dev_fd < 0) ? -1 : dev_fd;
+        psp->is_nvme = false;
         vp = malloc(sizeof(struct sg_pt_win32_scsi *)); // yes a pointer
         if (vp)
             vp->implp = psp;
         else
             free(psp);
     }
+    if ((NULL == vp) && verbose)
+        pr2ws("%s: about to return NULL, space problem\n", __func__);
     return vp;
+}
+
+struct sg_pt_base *
+construct_scsi_pt_obj(void)
+{
+    return construct_scsi_pt_obj_with_fd(-1, 0);
 }
 
 void
@@ -424,6 +512,21 @@ set_scsi_pt_data_out(struct sg_pt_base * vp, const unsigned char * dxferp,
 }
 
 void
+set_pt_metadata_xfer(struct sg_pt_base * vp, unsigned char * mdxferp,
+                     uint32_t mdxfer_len, bool out_true)
+{
+    struct sg_pt_win32_scsi * psp = vp->implp;
+
+    if (psp->mdxferp)
+        ++psp->in_err;
+    if (mdxfer_len > 0) {
+        psp->mdxferp = mdxferp;
+        psp->mdxfer_len = mdxfer_len;
+        psp->mdxfer_out = out_true;
+    }
+}
+
+void
 set_scsi_pt_packet_id(struct sg_pt_base * vp __attribute__ ((unused)),
                       int pack_id __attribute__ ((unused)))
 {
@@ -497,7 +600,7 @@ do_scsi_pt_direct(struct sg_pt_base * vp, int device_fd, int time_secs,
         return -psp->os_err;
     }
     shp = handle_arr + index;
-    if (0 == shp->in_use) {
+    if (! shp->in_use) {
         if (verbose)
             pr2ws("File descriptor closed??\n");
         psp->os_err = ENODEV;
@@ -567,7 +670,7 @@ static int
 do_scsi_pt_indirect(struct sg_pt_base * vp, int device_fd, int time_secs,
                     int verbose)
 {
-    int index = device_fd - WIN32_FDOFFSET;
+    int index;
     struct sg_pt_win32_scsi * psp = vp->implp;
     struct sg_pt_handle * shp;
     BOOL status;
@@ -579,13 +682,30 @@ do_scsi_pt_indirect(struct sg_pt_base * vp, int device_fd, int time_secs,
             pr2ws("Replicated or unused set_scsi_pt...\n");
         return SCSI_PT_DO_BAD_PARAMS;
     }
+    if (device_fd < 0) {
+        if (psp->dev_fd < 0) {
+            if (verbose)
+                pr2ws("%s: No device file descriptor given\n", __func__);
+            return SCSI_PT_DO_BAD_PARAMS;
+        }
+    } else {
+        if (psp->dev_fd >= 0) {
+            if (device_fd != psp->dev_fd) {
+                if (verbose)
+                    pr2ws("%s: file descriptor given to create and this "
+                          "differ\n", __func__);
+                return SCSI_PT_DO_BAD_PARAMS;
+            }
+        } else
+            psp->dev_fd = device_fd;
+    }
     if (0 == psp->swb_i.spt.CdbLength) {
         if (verbose)
             pr2ws("No command (cdb) given\n");
         return SCSI_PT_DO_BAD_PARAMS;
     }
 
-    index = device_fd - WIN32_FDOFFSET;
+    index = psp->dev_fd - WIN32_FDOFFSET;
     if ((index < 0) || (index >= WIN32_FDOFFSET)) {
         if (verbose)
             pr2ws("Bad file descriptor\n");
@@ -593,7 +713,7 @@ do_scsi_pt_indirect(struct sg_pt_base * vp, int device_fd, int time_secs,
         return -psp->os_err;
     }
     shp = handle_arr + index;
-    if (0 == shp->in_use) {
+    if (! shp->in_use) {
         if (verbose)
             pr2ws("File descriptor closed??\n");
         psp->os_err = ENODEV;
@@ -770,8 +890,18 @@ pt_device_is_nvme(const struct sg_pt_base * vp)
 {
     const struct sg_pt_win32_scsi * psp = vp->implp;
 
-    if (vp) { ; }       /* suppress warings */
-    return false;
+    return psp ? psp->is_nvme : false;
+}
+
+/* If a NVMe block device (which includes the NSID) handle is associated
+ *  * with 'vp', then its NSID is returned (values range from 0x1 to
+ *   * 0xffffffe). Otherwise 0 is returned. */
+uint32_t
+get_pt_nvme_nsid(const struct sg_pt_base * vp)
+{
+    const struct sg_pt_win32_scsi * psp = vp->implp;
+
+    return psp->nvme_nsid;
 }
 
 char *
@@ -822,3 +952,5 @@ get_scsi_pt_os_err_str(const struct sg_pt_base * vp, int max_b_len, char * b)
         b[max_b_len - 1] = '\0';
     return b;
 }
+
+
