@@ -5,6 +5,8 @@ the source for the utilities. It is provided so that packages
 using the library from sg3_utils (e.g. sdparm and ddpt) can
 be built.
 
-Changelog for sg3_utils_lib-1.00 [20171106] [svn: r2]
+Changelog for sg3_utils_lib-1.01 [20180113] [svn: r2]
   - copy the include and lib directories from sg3_utils
-    revision 730.
+    revision 744
+
+
