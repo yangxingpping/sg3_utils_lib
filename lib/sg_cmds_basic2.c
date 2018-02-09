@@ -137,9 +137,12 @@ sg_ll_sync_cache_10(int sg_fd, bool sync_nv, bool immed, int group,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -190,9 +193,12 @@ sg_ll_readcap_16(int sg_fd, bool pmi, uint64_t llba, void * resp,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, mx_resp_len, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -240,9 +246,12 @@ sg_ll_readcap_10(int sg_fd, bool pmi, unsigned int lba, void * resp,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, mx_resp_len, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -295,10 +304,12 @@ sg_ll_mode_sense6(int sg_fd, bool dbd, int pc, int pg_code, int sub_pg_code,
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, mx_resp_len, sense_b,
                                noisy, verbose, &sense_cat);
     resid = get_scsi_pt_resid(ptvp);
-    destruct_scsi_pt_obj(ptvp);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -313,14 +324,16 @@ sg_ll_mode_sense6(int sg_fd, bool dbd, int pc, int pg_code, int sub_pg_code,
             pr2ws("    %s: response", cdb_name_s);
             if (3 == verbose) {
                 pr2ws("%s:\n", (ret > 256 ? ", first 256 bytes" : ""));
-                dStrHexErr((const char *)resp, (ret > 256 ? 256 : ret), -1);
+                hex2stderr((const uint8_t *)resp, (ret > 256 ? 256 : ret),
+                           -1);
             } else {
                 pr2ws(":\n");
-                dStrHexErr((const char *)resp, ret, 0);
+                hex2stderr((const uint8_t *)resp, ret, 0);
             }
         }
         ret = 0;
     }
+    destruct_scsi_pt_obj(ptvp);
 
     if (resid > 0) {
         if (resid > mx_resp_len) {
@@ -394,10 +407,12 @@ sg_ll_mode_sense10_v2(int sg_fd, bool llbaa, bool dbd, int pc, int pg_code,
     resid = get_scsi_pt_resid(ptvp);
     if (residp)
         *residp = resid;
-    destruct_scsi_pt_obj(ptvp);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -412,14 +427,16 @@ sg_ll_mode_sense10_v2(int sg_fd, bool llbaa, bool dbd, int pc, int pg_code,
             pr2ws("    %s: response", cdb_name_s);
             if (3 == verbose) {
                 pr2ws("%s:\n", (ret > 256 ? ", first 256 bytes" : ""));
-                dStrHexErr((const char *)resp, (ret > 256 ? 256 : ret), -1);
+                hex2stderr((const uint8_t *)resp, (ret > 256 ? 256 : ret),
+                           -1);
             } else {
                 pr2ws(":\n");
-                dStrHexErr((const char *)resp, ret, 0);
+                hex2stderr((const uint8_t *)resp, ret, 0);
             }
         }
         ret = 0;
     }
+    destruct_scsi_pt_obj(ptvp);
 
     if (resid > 0) {
         if (resid > mx_resp_len) {
@@ -464,7 +481,7 @@ sg_ll_mode_select6(int sg_fd, bool pf, bool sp, void * paramp, int param_len,
     }
     if (verbose > 1) {
         pr2ws("    %s parameter list\n", cdb_name_s);
-        dStrHexErr((const char *)paramp, param_len, -1);
+        hex2stderr((const uint8_t *)paramp, param_len, -1);
     }
 
     if (NULL == ((ptvp = create_pt_obj(cdb_name_s))))
@@ -475,9 +492,12 @@ sg_ll_mode_select6(int sg_fd, bool pf, bool sp, void * paramp, int param_len,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -521,7 +541,7 @@ sg_ll_mode_select10(int sg_fd, bool pf, bool sp, void * paramp, int param_len,
     }
     if (verbose > 1) {
         pr2ws("    %s parameter list\n", cdb_name_s);
-        dStrHexErr((const char *)paramp, param_len, -1);
+        hex2stderr((const uint8_t *)paramp, param_len, -1);
     }
 
     if (NULL == ((ptvp = create_pt_obj(cdb_name_s))))
@@ -532,9 +552,12 @@ sg_ll_mode_select10(int sg_fd, bool pf, bool sp, void * paramp, int param_len,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -822,10 +845,12 @@ sg_ll_log_sense_v2(int sg_fd, bool ppc, bool sp, int pc, int pg_code,
     resid = get_scsi_pt_resid(ptvp);
     if (residp)
         *residp = resid;
-    destruct_scsi_pt_obj(ptvp);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -843,6 +868,7 @@ sg_ll_log_sense_v2(int sg_fd, bool ppc, bool sp, int pc, int pg_code,
         }
         ret = 0;
     }
+    destruct_scsi_pt_obj(ptvp);
 
     if (resid > 0) {
         if (resid > mx_resp_len) {
@@ -890,7 +916,7 @@ sg_ll_log_select(int sg_fd, bool pcr, bool sp, int pc, int pg_code,
     }
     if ((verbose > 1) && (param_len > 0)) {
         pr2ws("    %s parameter list\n", cdb_name_s);
-        dStrHexErr((const char *)paramp, param_len, -1);
+        hex2stderr(paramp, param_len, -1);
     }
 
     if (NULL == ((ptvp = create_pt_obj(cdb_name_s))))
@@ -901,9 +927,12 @@ sg_ll_log_select(int sg_fd, bool pcr, bool sp, int pc, int pg_code,
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -963,9 +992,12 @@ sg_ll_start_stop_unit(int sg_fd, bool immed, int pc_mod__fl_num,
     res = do_scsi_pt(ptvp, sg_fd, START_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:
@@ -1015,9 +1047,12 @@ sg_ll_prevent_allow(int sg_fd, int prevent, bool noisy, int verbose)
     res = do_scsi_pt(ptvp, sg_fd, DEF_PT_TIMEOUT, verbose);
     ret = sg_cmds_process_resp(ptvp, cdb_name_s, res, SG_NO_DATA_IN, sense_b,
                                noisy, verbose, &sense_cat);
-    if (-1 == ret)
-        ;
-    else if (-2 == ret) {
+    if (-1 == ret) {
+        int os_err = get_scsi_pt_os_err(ptvp);
+
+        if ((os_err > 0) && (os_err < 47))
+            ret = SG_LIB_OS_BASE_ERR + os_err;
+    } else if (-2 == ret) {
         switch (sense_cat) {
         case SG_LIB_CAT_RECOVERED:
         case SG_LIB_CAT_NO_SENSE:

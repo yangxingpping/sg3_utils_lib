@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2017 Douglas Gilbert.
+ * Copyright (c) 1999-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
@@ -27,7 +27,7 @@
  *
  */
 
-#define _POSIX_C_SOURCE 200809L		/* for posix_memalign() */
+#define _POSIX_C_SOURCE 200809L         /* for posix_memalign() */
 #define __STDC_FORMAT_MACROS 1
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +36,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -553,8 +554,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             if (0 != tpid_format)
                 n += scnpr(b + n, blen - n, "%s  [Unexpected TPID format: "
                            "%d]\n", lip, tpid_format);
-            n += dStrHexStr((const char *)bp +8, 8, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp + 8, 8, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_SPI:        /* Scsi Parallel Interface, obsolete */
@@ -573,8 +573,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
                        "defined):\n", lip);
             n += scnpr(b + n, blen - n, "%s  TPID format: %d\n", lip,
                        tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_1394: /* IEEE 1394 */
@@ -582,8 +581,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             if (0 != tpid_format)
                 n += scnpr(b + n, blen - n, "%s  [Unexpected TPID format: "
                            "%d]\n", lip, tpid_format);
-            n += dStrHexStr((const char *)&bp[8], 8, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(&bp[8], 8, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_SRP:        /* SCSI over RDMA */
@@ -592,8 +590,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             if (0 != tpid_format)
                 n += scnpr(b + n, blen - n, "%s  [Unexpected TPID format: "
                            "%d]\n", lip, tpid_format);
-            n += dStrHexStr((const char *)&bp[8], 16, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp + 8, 16, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_ISCSI:
@@ -607,8 +604,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             else {
                 n += scnpr(b + n, blen - n, "  [Unexpected TPID format: "
                            "%d]\n", tpid_format);
-                n += dStrHexStr((const char *)bp, num + 4, lip, 0,
-                                blen - n, b + n);
+                n += hex2str(bp, num + 4, lip, 0, blen - n, b + n);
             }
             bump = (((num + 4) < TRANSPORT_ID_MIN_LEN) ?
                          TRANSPORT_ID_MIN_LEN : num + 4);
@@ -626,24 +622,21 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             n += scnpr(b + n, blen - n, "%s  ADT:\n", lip);
             n += scnpr(b + n, blen - n, "%s  TPID format: %d\n", lip,
                        tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_ATA:        /* no TransportID defined by T10 yet */
             n += scnpr(b + n, blen - n, "%s  ATAPI:\n", lip);
             n += scnpr(b + n, blen - n, "%s  TPID format: %d\n", lip,
                        tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_UAS:        /* no TransportID defined by T10 yet */
             n += scnpr(b + n, blen - n, "%s  UAS:\n", lip);
             n += scnpr(b + n, blen - n, "%s  TPID format: %d\n", lip,
                        tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_SOP:
@@ -654,8 +647,7 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             else {
                 n += scnpr(b + n, blen - n, "  [Unexpected TPID format: "
                            "%d]\n", tpid_format);
-                n += dStrHexStr((const char *)bp, normal_len, lip, 1,
-                                blen - n, b + n);
+                n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             }
             bump = TRANSPORT_ID_MIN_LEN;
             break;
@@ -663,21 +655,19 @@ sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
             n += scnpr(b + n, blen - n, "%s  PCIE:\n", lip);
             n += scnpr(b + n, blen - n, "%s  TPID format: %d\n", lip,
                        tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         case TPROTO_NONE:       /* no TransportID defined by T10 */
             n += scnpr(b + n, blen - n, "%s  No specified protocol\n", lip);
-            /* n += dStrHexStr((const char *)bp, ((bplen > 24) ? 24 : bplen),
+            /* n += hex2str(bp, ((bplen > 24) ? 24 : bplen),
              *                 lip, 0, blen - n, b + n); */
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         default:
             n += scnpr(b + n, blen - n, "%s  unknown protocol id=0x%x  "
                        "TPID format=%d\n", lip, proto_id, tpid_format);
-            n += dStrHexStr((const char *)bp, normal_len, lip, 1, blen - n,
-                            b + n);
+            n += hex2str(bp, normal_len, lip, 1, blen - n, b + n);
             bump = TRANSPORT_ID_MIN_LEN;
             break;
         }
@@ -811,7 +801,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
                        lip, dlen, ip);
         else {
             n += scnpr(b + n, blen - n, "%s      vendor specific:\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 0, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
         }
         break;
     case 1: /* T10 vendor identification */
@@ -834,8 +824,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             if ((8 != dlen) && (12 != dlen) && (16 != dlen)) {
                 n += scnpr(b + n, blen - n, "%s      << expect 8, 12 and 16 "
                            "byte EUI, got %d >>\n", lip, dlen);
-                 n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n,
-                                 b + n);
+                 n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
                 break;
             }
             n += scnpr(b + n, blen - n, "%s      0x", lip);
@@ -849,7 +838,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         if (1 != c_set) {
             n += scnpr(b + n, blen - n, "%s      << expected binary code_set "
                        "(1) >>\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         ci_off = 0;
@@ -861,7 +850,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         } else if ((8 != dlen) && (12 != dlen)) {
             n += scnpr(b + n, blen - n, "%s      << can only decode 8, 12 "
                        "and 16 byte ids >>\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         c_id = sg_get_unaligned_be24(ip + ci_off);
@@ -885,7 +874,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         if (1 != c_set) {
             n += scnpr(b + n, blen - n, "%s      << unexpected code set %d "
                        "for NAA >>\n", lip, c_set);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         naa = (ip[0] >> 4) & 0xff;
@@ -894,8 +883,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             if (8 != dlen) {
                 n += scnpr(b + n, blen - n, "%s      << unexpected NAA 2 "
                            "identifier length: 0x%x >>\n", lip, dlen);
-                n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n,
-                                b + n);
+                n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
                 break;
             }
             d_id = (((ip[0] & 0xf) << 8) | ip[1]);
@@ -922,8 +910,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             if (8 != dlen) {
                 n += scnpr(b + n, blen - n, "%s      << unexpected NAA 3 "
                            "identifier length: 0x%x >>\n", lip, dlen);
-                n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n,
-                                b + n);
+                n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
                 break;
             }
             if (do_long)
@@ -938,8 +925,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             if (8 != dlen) {
                 n += scnpr(b + n, blen - n, "%s      << unexpected NAA 5 "
                            "identifier length: 0x%x >>\n", lip, dlen);
-                n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n,
-                                b + n);
+                n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
                 break;
             }
             c_id = (((ip[0] & 0xf) << 20) | (ip[1] << 12) |
@@ -969,8 +955,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             if (16 != dlen) {
                 n += scnpr(b + n, blen - n, "%s      << unexpected NAA 6 "
                            "identifier length: 0x%x >>\n", lip, dlen);
-                n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n,
-                                b + n);
+                n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
                 break;
             }
             c_id = (((ip[0] & 0xf) << 20) | (ip[1] << 12) |
@@ -1003,7 +988,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         default:
             n += scnpr(b + n, blen - n, "%s      << unexpected NAA [0x%x] "
                        ">>\n", lip, naa);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         break;
@@ -1012,7 +997,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             n += scnpr(b + n, blen - n, "%s      << expected binary "
                        "code_set, target port association, length 4 >>\n",
                        lip);
-            n += dStrHexStr((const char *)ip, dlen, "", 1, blen - n, b + n);
+            n += hex2str(ip, dlen, "", 1, blen - n, b + n);
             break;
         }
         d_id = sg_get_unaligned_be16(ip + 2);
@@ -1024,7 +1009,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             n += scnpr(b + n, blen - n, "%s      << expected binary "
                        "code_set, target port association, length 4 >>\n",
                        lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         d_id = sg_get_unaligned_be16(ip + 2);
@@ -1036,7 +1021,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             n += scnpr(b + n, blen - n, "%s      << expected binary "
                        "code_set, logical unit association, length 4 >>\n",
                        lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
             break;
         }
         d_id = sg_get_unaligned_be16(ip + 2);
@@ -1047,12 +1032,12 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         if ((1 != c_set) || (0 != assoc)) {
             n += scnpr(b + n, blen - n, "%s      << expected binary "
                        "code_set, logical unit association >>\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, "", 1, blen - n, b + n);
+            n += hex2str(ip, dlen, "", 1, blen - n, b + n);
             break;
         }
         n += scnpr(b + n, blen - n, "%s      MD5 logical unit identifier:\n",
                    lip);
-        n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+        n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
         break;
     case 8: /* SCSI name string */
         if (3 != c_set) {       /* accept ASCII as subset of UTF-8 */
@@ -1063,8 +1048,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
             } else {
                 n += scnpr(b + n, blen - n, "%s      << expected UTF-8 "
                            "code_set >>\n", lip);
-                n += dStrHexStr((const char *)ip, dlen, lip, 0, blen - n,
-                                b + n);
+                n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
                 break;
             }
         }
@@ -1107,13 +1091,13 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
         if (1 != c_set) {
             n += scnpr(b + n, blen - n, "%s      << expected binary "
                        "code_set >>\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 0, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
             break;
         }
         if ((1 != ((ip[0] >> 4) & 0xf)) || (18 != dlen)) {
             n += scnpr(b + n, blen - n, "%s      << expected locally "
                        "assigned UUID, 16 bytes long >>\n", lip);
-            n += dStrHexStr((const char *)ip, dlen, lip, 0, blen - n, b + n);
+            n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
             break;
         }
         n += scnpr(b + n, blen - n, "%s      Locally assigned UUID: ", lip);
@@ -1133,7 +1117,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
     default: /* reserved */
         n += scnpr(b + n, blen - n, "%s      reserved designator=0x%x\n", lip,
                    desig_type);
-        n += dStrHexStr((const char *)ip, dlen, lip, 1, blen - n, b + n);
+        n += hex2str(ip, dlen, lip, 1, blen - n, b + n);
         break;
     }
     return n;
@@ -1623,22 +1607,23 @@ sg_get_sense_sat_pt_fixed_str(const char * lip, const unsigned char * sp,
 /* Fetch sense information */
 int
 sg_get_sense_str(const char * lip, const unsigned char * sbp, int sb_len,
-                 bool raw_sinfo, int buff_len, char * buff)
+                 bool raw_sinfo, int cblen, char * cbp)
 {
-    int len, progress, n, r, pr, rem, blen;
-    unsigned int info;
     bool descriptor_format = false;
     bool sdat_ovfl = false;
     bool valid;
+    int len, progress, n, r, pr, rem, blen;
+    unsigned int info;
+    uint8_t resp_code;
     const char * ebp = NULL;
-    char error_buff[64];
+    char ebuff[64];
     char b[256];
     struct sg_scsi_sense_hdr ssh;
 
-    if ((NULL == buff) || (buff_len <= 0))
+    if ((NULL == cbp) || (cblen <= 0))
         return 0;
-    else if (1 == buff_len) {
-        buff[0] = '\0';
+    else if (1 == cblen) {
+        cbp[0] = '\0';
         return 0;
     }
     blen = sizeof(b);
@@ -1646,9 +1631,11 @@ sg_get_sense_str(const char * lip, const unsigned char * sbp, int sb_len,
     if (NULL == lip)
         lip = "";
     if ((NULL == sbp) || (sb_len < 1)) {
-            n += scnpr(buff, buff_len, "%s >>> sense buffer empty\n", lip);
+            n += scnpr(cbp, cblen, "%s >>> sense buffer empty\n", lip);
             return n;
     }
+    resp_code = 0x7f & sbp[0];
+    valid = !!(sbp[0] & 0x80);
     len = sb_len;
     if (sg_scsi_normalize_sense(sbp, sb_len, &ssh)) {
         switch (ssh.response_code) {
@@ -1679,36 +1666,33 @@ sg_get_sense_str(const char * lip, const unsigned char * sbp, int sb_len,
             ebp = "Response code: 0x0 (?)";
             break;
         default:
-            scnpr(error_buff, sizeof(error_buff), "Unknown response code: "
-                  "0x%x", ssh.response_code);
-            ebp = error_buff;
+            scnpr(ebuff, sizeof(ebuff), "Unknown response code: 0x%x",
+                  ssh.response_code);
+            ebp = ebuff;
             break;
         }
-        n += scnpr(buff + n, buff_len - n, "%s%s; Sense key: %s\n", lip, ebp,
+        n += scnpr(cbp + n, cblen - n, "%s%s; Sense key: %s\n", lip, ebp,
                    sg_lib_sense_key_desc[ssh.sense_key]);
         if (sdat_ovfl)
-            n += scnpr(buff + n, buff_len - n, "%s<<<Sense data "
-                       "overflow>>>\n", lip);
+            n += scnpr(cbp + n, cblen - n, "%s<<<Sense data overflow>>>\n",
+                       lip);
         if (descriptor_format) {
-            n += scnpr(buff + n, buff_len - n, "%s%s\n", lip,
-                       sg_get_asc_ascq_str(ssh.asc, ssh.ascq, sizeof(b), b));
+            n += scnpr(cbp + n, cblen - n, "%s%s\n", lip,
+                       sg_get_asc_ascq_str(ssh.asc, ssh.ascq, blen, b));
             n += sg_get_sense_descriptors_str(lip, sbp, len,
-                                              buff_len - n, buff + n);
+                                              cblen - n, cbp + n);
         } else if ((len > 12) && (0 == ssh.asc) &&
                    (ASCQ_ATA_PT_INFO_AVAILABLE == ssh.ascq)) {
             /* SAT ATA PASS-THROUGH fixed format */
-            n += scnpr(buff + n, buff_len - n, "%s%s\n", lip,
-                       sg_get_asc_ascq_str(ssh.asc, ssh.ascq,
-                             sizeof(b), b));
+            n += scnpr(cbp + n, cblen - n, "%s%s\n", lip,
+                       sg_get_asc_ascq_str(ssh.asc, ssh.ascq, blen, b));
             n += sg_get_sense_sat_pt_fixed_str(lip, sbp, len,
-                                               buff_len - n, buff + n);
+                                               cblen - n, cbp + n);
         } else if (len > 2) {   /* fixed format */
             if (len > 12)
-                n += scnpr(buff + n, buff_len - n, "%s%s\n", lip,
-                           sg_get_asc_ascq_str(ssh.asc, ssh.ascq,
-                                                     sizeof(b), b));
+                n += scnpr(cbp + n, cblen - n, "%s%s\n", lip,
+                           sg_get_asc_ascq_str(ssh.asc, ssh.ascq, blen, b));
             r = 0;
-            valid = !!(sbp[0] & 0x80);
             if (strlen(lip) > 0)
                 r += scnpr(b + r, blen - r, "%s", lip);
             if (len > 6) {
@@ -1791,42 +1775,49 @@ sg_get_sense_str(const char * lip, const unsigned char * sbp, int sb_len,
                 }
             }
             if (r > 0)
-                n += scnpr(buff + n, buff_len - n, "%s", b);
+                n += scnpr(cbp + n, cblen - n, "%s", b);
         } else
-            n += scnpr(buff + n, buff_len - n, "%s fixed descriptor length "
+            n += scnpr(cbp + n, cblen - n, "%s fixed descriptor length "
                        "too short, len=%d\n", lip, len);
-    } else {    /* non-extended SCSI-1 sense data ?? */
-        if (sb_len < 4) {
-            n += scnpr(buff + n, buff_len - n, "%ssense buffer too short (4 "
+    } else {    /* unable to normalise sense buffer, something irregular */
+        if (sb_len < 4) {       /* Too short */
+            n += scnpr(cbp + n, cblen - n, "%ssense buffer too short (4 "
                        "byte minimum)\n", lip);
-            return n;
+            goto check_raw;
         }
+        if (0x7f == resp_code) {        /* Vendor specific */
+            n += scnpr(cbp + n, cblen - n, "%sVendor specific sense buffer, "
+                       "in hex:\n", lip);
+            n += hex2str(sbp, sb_len, lip, -1, cblen - n, cbp + n);
+            return n;   /* no need to check raw, just output in hex */
+        }
+        /* non-extended SCSI-1 sense data ?? */
         r = 0;
         if (strlen(lip) > 0)
             r += scnpr(b + r, blen - r, "%s", lip);
         r += scnpr(b + r, blen - r, "Probably uninitialized data.\n%s  Try "
                    "to view as SCSI-1 non-extended sense:\n", lip);
         r += scnpr(b + r, blen - r, "  AdValid=%d  Error class=%d  Error "
-                   "code=%d\n", !!(sbp[0] & 0x80), ((sbp[0] >> 4) & 0x7),
+                   "code=%d\n", valid, ((sbp[0] >> 4) & 0x7),
                    (sbp[0] & 0xf));
-        if (sbp[0] & 0x80)
+        if (valid)
             scnpr(b + r, blen - r, "%s  lba=0x%x\n", lip,
                   sg_get_unaligned_be24(sbp + 1) & 0x1fffff);
-        n += scnpr(buff + n, buff_len - n, "%s\n", b);
+        n += scnpr(cbp + n, cblen - n, "%s\n", b);
         len = sb_len;
         if (len > 32)
             len = 32;   /* trim in case there is a lot of rubbish */
     }
+check_raw:
     if (raw_sinfo) {
         char z[64];
 
-        n += scnpr(buff + n, buff_len - n, "%s Raw sense data (in hex):\n",
+        n += scnpr(cbp + n, cblen - n, "%s Raw sense data (in hex):\n",
                    lip);
-        if (n >= (buff_len - 1))
+        if (n >= (cblen - 1))
             return n;
         scnpr(z, sizeof(z), "%.50s        ", lip);
-        n += dStrHexStr((const char *)sbp, len, z,  1, buff_len - n,
-                        buff + n);
+        n += hex2str(sbp, len, z,  -1, cblen - n, cbp + n);
     }
     return n;
 }
@@ -1836,10 +1827,118 @@ void
 sg_print_sense(const char * leadin, const unsigned char * sbp, int sb_len,
                bool raw_sinfo)
 {
-    char b[2048];
+    uint32_t pg_sz = sg_get_page_size();
+    char *cp;
+    uint8_t *free_cp;
 
-    sg_get_sense_str(leadin, sbp, sb_len, raw_sinfo, sizeof(b), b);
-    pr2ws("%s", b);
+    cp = (char *)sg_memalign(pg_sz, pg_sz, &free_cp, 0);
+    if (NULL == cp)
+        return;
+    sg_get_sense_str(leadin, sbp, sb_len, raw_sinfo, pg_sz, cp);
+    pr2ws("%s", cp);
+    free(free_cp);
+}
+
+/* Following examines exit_status and outputs a clear error message to
+ * warnings_strm (usually stderr) if one is known and returns true.
+ * Otherwise it doesn't print anything and returns false. Note that
+ * if exit_status==0 then returns true but prints nothing and if
+ * exit_status<0 ("some error occurred") false is returned. If leadin is
+ * non-NULL then it is printed before the error message. */
+bool
+sg_if_can2stderr(const char * leadin, int exit_status)
+{
+    const char * s = leadin ? leadin : "";
+
+    if (exit_status < 0)
+        return false;
+    else if (0 == exit_status)
+        return true;
+
+    switch (exit_status) {
+    case SG_LIB_CAT_NOT_READY:          /* 2 */
+        pr2ws("%sDevice not ready\n", s);
+        return true;
+    case SG_LIB_CAT_MEDIUM_HARD:        /* 3 */
+        pr2ws("%sMedium or hardware error\n", s); /* 3 sense keys: Medium, */
+        return true;    /* hardware error or 'Blank check' for tapes */
+    case SG_LIB_CAT_UNIT_ATTENTION:     /* 6 */
+        pr2ws("%sDevice reported 'Unit attention'\n", s);
+        return true;
+    case SG_LIB_CAT_DATA_PROTECT:       /* 7 */
+        pr2ws("%sDevice reported 'Data protect', read-only?\n", s);
+        return true;
+    case SG_LIB_CAT_COPY_ABORTED:       /* 10 */
+        pr2ws("%sCopy aborted\n", s);
+        return true;
+    case SG_LIB_CAT_ABORTED_COMMAND:    /* 11 */
+        pr2ws("%sCommand aborted\n", s);
+        return true;
+    case SG_LIB_CAT_MISCOMPARE:         /* 14 */
+        pr2ws("%sMiscompare\n", s);
+        return true;
+    case SG_LIB_CAT_RES_CONFLICT:       /* 24 */
+        pr2ws("%sReservation conflict\n", s);
+        return true;
+    case SG_LIB_CAT_BUSY:               /* 26 */
+        pr2ws("%sDevice is busy, try again\n", s);
+        return true;
+    case SG_LIB_CAT_TASK_ABORTED:       /* 29 */
+        pr2ws("%sTask aborted\n", s);
+        return true;
+    case SG_LIB_CAT_TIMEOUT:            /* 33 */
+        pr2ws("%sTime out\n", s);
+        return true;
+    case SG_LIB_CAT_PROTECTION:         /* 40 */
+        pr2ws("%sProtection error\n", s);
+        return true;
+    case SG_LIB_NVME_STATUS:            /* 48 */
+        pr2ws("%sNVMe error (non-zero status)\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + EACCES:   /* 50 + */
+        pr2ws("%sPermission denied\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + ENOMEM:
+        pr2ws("%sUtility unable to allocate memory\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + ENOTTY:
+        pr2ws("%sInappropriate I/O control operation\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + EPERM:
+        pr2ws("%sNot permitted\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + EINTR:
+        pr2ws("%sInterrupted system call\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + EIO:
+        pr2ws("%sInput/output error\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + ENODEV:
+        pr2ws("%sNo such device\n", s);
+        return true;
+    case SG_LIB_OS_BASE_ERR + ENOENT:
+        pr2ws("%sNo such file or directory\n", s);
+        return true;
+    default:
+        return false;
+    }
+    return false;
+}
+
+/* If os_err_num is within bounds then the returned value is 'os_err_num +
+ * SG_LIB_OS_BASE_ERR' otherwise -1 is returned. If os_err_num is 0 then 0
+ * is returned. */
+int
+sg_convert_errno(int os_err_num)
+{
+    if (os_err_num <= 0) {
+        if (os_err_num < -1)
+            return -1;
+        return os_err_num;
+    }
+    if (os_err_num < (SG_LIB_CAT_MALFORMED - SG_LIB_OS_BASE_ERR))
+        return SG_LIB_OS_BASE_ERR + os_err_num;
+    return -1;
 }
 
 /* See description in sg_lib.h header file */
@@ -1847,12 +1946,16 @@ bool
 sg_scsi_normalize_sense(const unsigned char * sbp, int sb_len,
                         struct sg_scsi_sense_hdr * sshp)
 {
+    uint8_t resp_code;
     if (sshp)
         memset(sshp, 0, sizeof(struct sg_scsi_sense_hdr));
-    if ((NULL == sbp) || (0 == sb_len) || (0x70 != (0x70 & sbp[0])))
+    if ((NULL == sbp) || (sb_len < 1))
+        return false;
+    resp_code = 0x7f & sbp[0];
+    if ((resp_code < 0x70) || (resp_code > 0x73))
         return false;
     if (sshp) {
-        sshp->response_code = (0x7f & sbp[0]);
+        sshp->response_code = resp_code;
         if (sshp->response_code >= 0x72) {  /* descriptor format */
             if (sb_len > 1)
                 sshp->sense_key = (0xf & sbp[1]);
@@ -2276,10 +2379,18 @@ sg_get_category_sense_str(int sense_cat, int buff_len, char * buff,
                      "issue");
         break;
     default:
-        n = scnpr(buff, buff_len, "Sense category: %d", sense_cat);
-        if ((0 == verbose) && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, ", try '-v' option for more "
-                     "information");
+        if ((sense_cat > SG_LIB_OS_BASE_ERR) &&
+            (sense_cat < (SG_LIB_OS_BASE_ERR + 47))) {
+            int k = sense_cat - SG_LIB_OS_BASE_ERR;
+
+            n = scnpr(buff, buff_len, "OS error: %s [%d]", safe_strerror(k),
+                      k);
+        } else {
+            n = scnpr(buff, buff_len, "Sense category: %d", sense_cat);
+            if ((0 == verbose) && (n < (buff_len - 1)))
+                scnpr(buff + n, buff_len - n, ", try '-v' option for more "
+                      "information");
+        }
         break;
     }
     return buff;
@@ -2480,9 +2591,9 @@ sg_get_nvme_cmd_status_str(uint16_t sct_sc, int b_len, char * b)
     return b;
 }
 
-/* Attempts to map NVMe status value (SCT and SC) to SCSI status, sense_key,
- * asc and ascq tuple. If successful returns true and writes to non-NULL
- * pointer arguments; otherwise returns false. */
+/* Attempts to map NVMe status value ((SCT << 8) | SC) to SCSI status,
+ * sense_key, asc and ascq tuple. If successful returns true and writes to
+ * non-NULL pointer arguments; otherwise returns false. */
 bool
 sg_nvme_status2scsi(uint16_t sct_sc, uint8_t * status_p, uint8_t * sk_p,
                     uint8_t * asc_p, uint8_t * ascq_p)
@@ -2589,10 +2700,8 @@ dStrHexFp(const char* str, int len, int no_ascii, FILE * fp)
     blen = (int)sizeof(buff);
     if (0 == no_ascii)  /* address at left and ASCII at right */
         formatstr = "%.76s\n";
-    else if (no_ascii > 0)
-        formatstr = "%s\n";     /* was: "%.58s\n" */
-    else /* negative: no address at left and no ASCII at right */
-        formatstr = "%s\n";     /* was: "%.48s\n"; */
+    else                        /* previously when > 0 str was "%.58s\n" */
+        formatstr = "%s\n";     /* when < 0 str was: "%.48s\n" */
     memset(buff, ' ', 80);
     buff[80] = '\0';
     if (no_ascii < 0) {
@@ -2752,6 +2861,25 @@ dStrHexStr(const char * str, int len, const char * leadin, int format,
             n += scnpr(b + n, b_len - n, "%s\n", buff);
     }
     return n;
+}
+
+void
+hex2stdout(const uint8_t * b_str, int len, int no_ascii)
+{
+    dStrHex((const char *)b_str, len, no_ascii);
+}
+
+void
+hex2stderr(const uint8_t * b_str, int len, int no_ascii)
+{
+    dStrHexErr((const char *)b_str, len, no_ascii);
+}
+
+int
+hex2str(const uint8_t * b_str, int len, const char * leadin, int format,
+        int b_len, char * b)
+{
+    return dStrHexStr((const char *)b_str, len, leadin, format, b_len, b);
 }
 
 /* Returns true when executed on big endian machine; else returns false.
@@ -3297,7 +3425,8 @@ sg_memalign(uint32_t num_bytes, uint32_t align_to, uint8_t ** buff_to_free,
     }
 #else
     {
-        uint8_t * wrkBuff;
+        void * wrkBuff;
+        sg_uintptr_t align_1 = psz - 1;
 
         wrkBuff = (uint8_t *)calloc(num_bytes + psz, 1);
         if (NULL == wrkBuff) {
@@ -3305,13 +3434,14 @@ sg_memalign(uint32_t num_bytes, uint32_t align_to, uint8_t ** buff_to_free,
                 *buff_to_free = NULL;
             return NULL;
         } else if (buff_to_free)
-            *buff_to_free = wrkBuff;
-        res = (uint8_t *)(((sg_uintptr_t)wrkBuff + psz - 1) & (~(psz - 1)));
+            *buff_to_free = (uint8_t *)wrkBuff;
+        res = (uint8_t *)(void *)
+            (((sg_uintptr_t)wrkBuff + align_1) & (~align_1));
         if (vb) {
             pr2ws("%s: hack, len=%d, ", __func__, num_bytes);
             if (buff_to_free)
-                pr2ws("buff_to_free=%p, ", (void *)buff_to_free);
-            pr2ws("psz=%u, rp=%p\n", (uint32_t)psz, (void *)res);
+                pr2ws("buff_to_free=%p, ", wrkBuff);
+            pr2ws("align_1=%lu, rp=%p\n", align_1, (void *)res);
         }
         return res;
     }

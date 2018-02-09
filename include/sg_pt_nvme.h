@@ -1,9 +1,8 @@
-PROPS-END
 #ifndef SG_PT_NVME_H
 #define SG_PT_NVME_H
 
 /*
- * Copyright (c) 2017 Douglas Gilbert.
+ * Copyright (c) 2017-2018 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
@@ -105,7 +104,7 @@ struct sg_nvme_passthru_cmd
         uint32_t cdw15;
 #ifdef SG_LIB_LINUX
         uint32_t timeout_ms;
-        uint32_t result;        /* DWord(0) of completion queue entry */
+        uint32_t result;        /* out: DWord(0) from completion queue */
 #endif
 }
 #ifdef SG_LIB_FREEBSD
@@ -141,6 +140,14 @@ __packed;
 #define SG_NVME_PT_TIMEOUT_MS 64        /* length: 4 bytes */
 #define SG_NVME_PT_RESULT 68            /* length: 4 bytes */
 #endif
+
+/* Byte offset of Result and Status (plus phase bit) in CQ */
+#define SG_NVME_PT_CQ_RESULT 0          /* CDW0, length: 4 bytes */
+#define SG_NVME_PT_CQ_DW0 0             /* CDW0, length: 4 bytes */
+#define SG_NVME_PT_CQ_DW1 4             /* CDW1, length: 4 bytes */
+#define SG_NVME_PT_CQ_DW2 8             /* CDW2, length: 4 bytes */
+#define SG_NVME_PT_CQ_DW3 12            /* CDW3, length: 4 bytes */
+#define SG_NVME_PT_CQ_STATUS_P 14       /* CDW3 31:16, length: 2 bytes */
 
 
 /* Valid namespace IDs (nsid_s) range from 1 to 0xfffffffe, leaving: */
