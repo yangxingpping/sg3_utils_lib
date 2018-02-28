@@ -470,6 +470,6 @@ typedef struct _NVME_PASS_THROUGH_IOCTL
 }
 #endif
 
-#endif
+#endif          /* SG_PT_WIN32_H */
 
 

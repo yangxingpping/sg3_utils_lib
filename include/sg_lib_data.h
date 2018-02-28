@@ -60,15 +60,15 @@ struct sg_lib_value_name_t {
 };
 
 struct sg_lib_asc_ascq_t {
-    unsigned char asc;          /* additional sense code */
-    unsigned char ascq;         /* additional sense code qualifier */
+    uint8_t asc;          /* additional sense code */
+    uint8_t ascq;         /* additional sense code qualifier */
     const char * text;
 };
 
 struct sg_lib_asc_ascq_range_t {
-    unsigned char asc;  /* additional sense code (ASC) */
-    unsigned char ascq_min;     /* ASCQ minimum in range */
-    unsigned char ascq_max;     /* ASCQ maximum in range */
+    uint8_t asc;          /* additional sense code (ASC) */
+    uint8_t ascq_min;     /* ASCQ minimum in range */
+    uint8_t ascq_max;     /* ASCQ maximum in range */
     const char * text;
 };
 
@@ -111,6 +111,8 @@ extern const char * sg_lib_pdt_strs[];
 extern const char * sg_lib_transport_proto_strs[];
 extern int sg_lib_pdt_decay_arr[];
 
+extern struct sg_lib_simple_value_name_t sg_lib_nvme_admin_cmd_arr[];
+extern struct sg_lib_simple_value_name_t sg_lib_nvme_nvm_cmd_arr[];
 extern struct sg_lib_value_name_t sg_lib_nvme_cmd_status_arr[];
 extern struct sg_lib_4tuple_u8 sg_lib_scsi_status_sense_arr[];
 

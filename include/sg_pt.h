@@ -23,22 +23,27 @@ extern "C" {
 struct sg_pt_base;
 
 
-/* The format of the version string is like this: "2.01 20090201".
+/* The format of the version string is like this: "3.04 20180213".
  * The leading digit will be incremented if this interface changes
  * in a way that may impact backward compatibility. */
 const char * scsi_pt_version();
+const char * sg_pt_version();   /* both functions give same result */
 
 
-/* Returns >= 0 if successful. If error in Unix returns negated errno. */
-int scsi_pt_open_device(const char * device_name, bool read_only, int verbose);
+/* Returns file descriptor or file handle and is >= 0 if successful.
+ * If error in Unix returns negated errno. */
+int scsi_pt_open_device(const char * device_name, bool read_only,
+                        int verbose);
 
 /* Similar to scsi_pt_open_device() but takes Unix style open flags OR-ed
- * together. Returns valid file descriptor( >= 0 ) if successful, otherwise
- * returns -1 or a negated errno.
+ * together. Returns valid file descriptor or handle ( >= 0 ) if successful,
+ * otherwise returns -1 or a negated errno.
  * In Win32 O_EXCL translated to equivalent. */
 int scsi_pt_open_flags(const char * device_name, int flags, int verbose);
 
-/* Returns 0 if successful. If error in Unix returns negated errno. */
+/* Returns 0 if successful. 'device_fd' should be a value that was previously
+ * returned by scsi_pt_open_device() or scsi_pt_open_flags() that has not
+ * already been closed. If error in Unix returns negated errno. */
 int scsi_pt_close_device(int device_fd);
 
 /* Assumes dev_fd is an "open" file handle associated with device_name. If
@@ -60,12 +65,12 @@ struct sg_pt_base * construct_scsi_pt_obj(void);
 
 /* An alternate way to create an object that can be used to issue one or
  * more SCSI commands (or task management functions). This variant
- * associate a device file descriptor (handle) with the object and a
- * verbose argument that causes error messages if errors occur. The
- * reason for this is to optionally allow the detection of NVMe devices
- * that will cause pt_device_is_nvme() to return true. Set dev_fd to
- * -1 if no open device file descriptor is available. Caller should
- *  additionally call get_scsi_pt_os_err() after this call. */
+ * associates a device file descriptor (handle) with the object and a
+ * verbose argument that causes messages to be written to stderr if errors
+ * occur. The reason for this is to optionally allow the detection of NVMe
+ * devices that will cause pt_device_is_nvme() to return true. Set dev_fd
+ * to -1 if no open device file descriptor is available. Caller should
+ * additionally call get_scsi_pt_os_err() after this call. */
 struct sg_pt_base *
         construct_scsi_pt_obj_with_fd(int dev_fd, int verbose);
 
@@ -85,20 +90,20 @@ int get_pt_file_handle(const struct sg_pt_base * objp);
 void clear_scsi_pt_obj(struct sg_pt_base * objp);
 
 /* Set the CDB (command descriptor block) */
-void set_scsi_pt_cdb(struct sg_pt_base * objp, const unsigned char * cdb,
+void set_scsi_pt_cdb(struct sg_pt_base * objp, const uint8_t * cdb,
                      int cdb_len);
 /* Set the sense buffer and the maximum length that it can handle */
-void set_scsi_pt_sense(struct sg_pt_base * objp, unsigned char * sense,
+void set_scsi_pt_sense(struct sg_pt_base * objp, uint8_t * sense,
                        int max_sense_len);
 /* Set a pointer and length to be used for data transferred from device */
 void set_scsi_pt_data_in(struct sg_pt_base * objp,   /* from device */
-                         unsigned char * dxferp, int dxfer_ilen);
+                         uint8_t * dxferp, int dxfer_ilen);
 /* Set a pointer and length to be used for data transferred to device */
 void set_scsi_pt_data_out(struct sg_pt_base * objp,    /* to device */
-                          const unsigned char * dxferp, int dxfer_olen);
+                          const uint8_t * dxferp, int dxfer_olen);
 /* Set a pointer and length to be used for metadata transferred to
  * (out_true=true) or from (out_true-false) device */
-void set_pt_metadata_xfer(struct sg_pt_base * objp, unsigned char * mdxferp,
+void set_pt_metadata_xfer(struct sg_pt_base * objp, uint8_t * mdxferp,
                           uint32_t mdxfer_len, bool out_true);
 /* The following "set_"s implementations may be dummies */
 void set_scsi_pt_packet_id(struct sg_pt_base * objp, int pack_id);
@@ -138,7 +143,8 @@ int do_scsi_pt(struct sg_pt_base * objp, int fd, int timeout_secs,
 #define SCSI_PT_RESULT_SENSE 2
 #define SCSI_PT_RESULT_TRANSPORT_ERR 3
 #define SCSI_PT_RESULT_OS_ERR 4
-/* highest numbered applicable category returned */
+/* This function, called soon after do_scsi_pt(), returns one of the above
+ * result categories. The highest numbered applicable category is returned. */
 int get_scsi_pt_result_category(const struct sg_pt_base * objp);
 
 /* If not available return 0 which implies there is no residual
@@ -171,7 +177,9 @@ void set_scsi_pt_transport_err(struct sg_pt_base * objp, int err);
 char * get_scsi_pt_transport_err_str(const struct sg_pt_base * objp,
                                      int max_b_len, char * b);
 
-/* If not available return -1 */
+/* If not available return -1 otherwise return number of milliseconds
+ * that the lower layers (and hardware) took to execute the previous
+ * command. */
 int get_scsi_pt_duration_ms(const struct sg_pt_base * objp);
 
 /* Return true if device associated with 'objp' uses NVMe command set. To
@@ -212,6 +220,6 @@ int scsi_pt_win32_spt_state(void);
 }
 #endif
 
-#endif
+#endif          /* SG_PT_H */
 
 

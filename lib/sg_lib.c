@@ -147,7 +147,7 @@ sg_set_warnings_strm(FILE * warnings_strm)
 #define CMD_NAME_LEN 128
 
 void
-sg_print_command(const unsigned char * command)
+sg_print_command(const uint8_t * command)
 {
     int k, sz;
     char buff[CMD_NAME_LEN];
@@ -165,39 +165,42 @@ sg_print_command(const unsigned char * command)
     pr2ws("]\n");
 }
 
+/* SCSI Status values */
+static const struct sg_lib_simple_value_name_t sstatus_str_arr[] = {
+    {0x0,  "Good"},
+    {0x2,  "Check Condition"},
+    {0x4,  "Condition Met"},
+    {0x8,  "Busy"},
+    {0x10, "Intermediate (obsolete)"},
+    {0x14, "Intermediate-Condition Met (obsolete)"},
+    {0x18, "Reservation Conflict"},
+    {0x22, "Command terminated (obsolete)"},
+    {0x28, "Task Set Full"},
+    {0x30, "ACA Active"},
+    {0x40, "Task Aborted"},
+    {0xffff, NULL},
+};
+
 void
 sg_get_scsi_status_str(int scsi_status, int buff_len, char * buff)
 {
-    const char * ccp = NULL;
-    bool unknown = false;
+    const struct sg_lib_simple_value_name_t * sstatus_p;
 
     if ((NULL == buff) || (buff_len < 1))
         return;
-    else if (1 ==  buff_len) {
+    else if (1 == buff_len) {
         buff[0] = '\0';
         return;
     }
     scsi_status &= 0x7e; /* sanitize as much as possible */
-    switch (scsi_status) {
-        case 0: ccp = "Good"; break;
-        case 0x2: ccp = "Check Condition"; break;
-        case 0x4: ccp = "Condition Met"; break;
-        case 0x8: ccp = "Busy"; break;
-        case 0x10: ccp = "Intermediate (obsolete)"; break;
-        case 0x14: ccp = "Intermediate-Condition Met (obsolete)"; break;
-        case 0x18: ccp = "Reservation Conflict"; break;
-        case 0x22: ccp = "Command Terminated (obsolete)"; break;
-        case 0x28: ccp = "Task set Full"; break;
-        case 0x30: ccp = "ACA Active"; break;
-        case 0x40: ccp = "Task Aborted"; break;
-        default:
-            unknown = true;
+    for (sstatus_p = sstatus_str_arr; sstatus_p->name; ++sstatus_p) {
+        if (scsi_status == sstatus_p->value)
             break;
     }
-    if (unknown)
-        scnpr(buff, buff_len, "Unknown status [0x%x]", scsi_status);
+    if (sstatus_p->name)
+        scnpr(buff, buff_len, "%s", sstatus_p->name);
     else
-        scnpr(buff, buff_len, "%s", ccp);
+        scnpr(buff, buff_len, "Unknown status [0x%x]", scsi_status);
 }
 
 void
@@ -213,7 +216,7 @@ sg_print_scsi_status(int scsi_status)
 /* Get sense key from sense buffer. If successful returns a sense key value
  * between 0 and 15. If sense buffer cannot be decode, returns -1 . */
 int
-sg_get_sense_key(const unsigned char * sbp, int sb_len)
+sg_get_sense_key(const uint8_t * sbp, int sb_len)
 {
     if ((NULL == sbp) || (sb_len < 2))
         return -1;
@@ -295,12 +298,12 @@ sg_get_asc_ascq_str(int asc, int ascq, int buff_len, char * buff)
 /* Attempt to find the first SCSI sense data descriptor that matches the
  * given 'desc_type'. If found return pointer to start of sense data
  * descriptor; otherwise (including fixed format sense data) returns NULL. */
-const unsigned char *
-sg_scsi_sense_desc_find(const unsigned char * sbp, int sb_len,
+const uint8_t *
+sg_scsi_sense_desc_find(const uint8_t * sbp, int sb_len,
                         int desc_type)
 {
     int add_sb_len, add_d_len, desc_len, k;
-    const unsigned char * descp;
+    const uint8_t * descp;
 
     if ((sb_len < 8) || (0 == (add_sb_len = sbp[7])))
         return NULL;
@@ -324,10 +327,10 @@ sg_scsi_sense_desc_find(const unsigned char * sbp, int sb_len,
  * information field is written out via 'info_outp' (except when it is
  * NULL). Handles both fixed and descriptor sense formats. */
 bool
-sg_get_sense_info_fld(const unsigned char * sbp, int sb_len,
+sg_get_sense_info_fld(const uint8_t * sbp, int sb_len,
                       uint64_t * info_outp)
 {
-    const unsigned char * bp;
+    const uint8_t * bp;
     uint64_t ull;
 
     if (info_outp)
@@ -361,10 +364,10 @@ sg_get_sense_info_fld(const unsigned char * sbp, int sb_len,
  * integer in descriptor format) is written out via 'cmd_spec_outp'.
  * Handles both fixed and descriptor sense formats. */
 bool
-sg_get_sense_cmd_spec_fld(const unsigned char * sbp, int sb_len,
+sg_get_sense_cmd_spec_fld(const uint8_t * sbp, int sb_len,
                           uint64_t * cmd_spec_outp)
 {
-    const unsigned char * bp;
+    const uint8_t * bp;
 
     if (cmd_spec_outp)
         *cmd_spec_outp = 0;
@@ -396,10 +399,10 @@ sg_get_sense_cmd_spec_fld(const unsigned char * sbp, int sb_len,
  * then returns false. Writes true or false corresponding to these bits to
  * the last three arguments if they are non-NULL. */
 bool
-sg_get_sense_filemark_eom_ili(const unsigned char * sbp, int sb_len,
+sg_get_sense_filemark_eom_ili(const uint8_t * sbp, int sb_len,
                               bool * filemark_p, bool * eom_p, bool * ili_p)
 {
-    const unsigned char * bp;
+    const uint8_t * bp;
 
     if (sb_len < 7)
         return false;
@@ -445,10 +448,10 @@ sg_get_sense_filemark_eom_ili(const unsigned char * sbp, int sb_len,
  * Hint: if true is returned *progress_outp may be multiplied by 100 then
  * divided by 65536 to get the percentage completion. */
 bool
-sg_get_sense_progress_fld(const unsigned char * sbp, int sb_len,
+sg_get_sense_progress_fld(const uint8_t * sbp, int sb_len,
                           int * progress_outp)
 {
-    const unsigned char * bp;
+    const uint8_t * bp;
     int sk, sk_pr;
 
     if (sb_len < 7)
@@ -519,7 +522,7 @@ sg_get_trans_proto_str(int tpi, int buff_len, char * buff)
 #define TRANSPORT_ID_MIN_LEN 24
 
 char *
-sg_decode_transportid_str(const char * lip, unsigned char * bp, int bplen,
+sg_decode_transportid_str(const char * lip, uint8_t * bp, int bplen,
                           bool only_one, int blen, char * b)
 {
     int proto_id, num, k, n, normal_len, tpid_format;
@@ -690,7 +693,7 @@ static const char * desig_code_set_str_arr[] =
 const char *
 sg_get_desig_code_set_str(int val)
 {
-    if ((val >= 0) && (val < 16))
+    if ((val >= 0) && (val < (int)SG_ARRAY_SIZE(desig_code_set_str_arr)))
         return desig_code_set_str_arr[val];
     else
         return NULL;
@@ -707,7 +710,7 @@ static const char * desig_assoc_str_arr[] =
 const char *
 sg_get_desig_assoc_str(int val)
 {
-    if ((val >= 0) && (val < 4))
+    if ((val >= 0) && (val < (int)SG_ARRAY_SIZE(desig_assoc_str_arr)))
         return desig_assoc_str_arr[val];
     else
         return NULL;
@@ -733,20 +736,20 @@ static const char * desig_type_str_arr[] =
 const char *
 sg_get_desig_type_str(int val)
 {
-    if ((val >= 0) && (val < 16))
+    if ((val >= 0) && (val < (int)SG_ARRAY_SIZE(desig_type_str_arr)))
         return desig_type_str_arr[val];
     else
         return NULL;
 }
 
 int
-sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
+sg_get_designation_descriptor_str(const char * lip, const uint8_t * ddp,
                                   int dd_len, bool print_assoc, bool do_long,
                                   int blen, char * b)
 {
     int m, p_id, piv, c_set, assoc, desig_type, ci_off, c_id, d_id, naa;
     int vsi, k, n, dlen;
-    const unsigned char * ip;
+    const uint8_t * ip;
     uint64_t vsei;
     uint64_t id_ext;
     char e[64];
@@ -1124,7 +1127,7 @@ sg_get_designation_descriptor_str(const char * lip, const unsigned char * ddp,
 }
 
 static int
-decode_sks(const char * lip, const unsigned char * descp, int add_d_len,
+decode_sks(const char * lip, const uint8_t * descp, int add_d_len,
            int sense_key, bool * processedp, int blen, char * b)
 {
     int progress, pr, rem, n;
@@ -1228,13 +1231,13 @@ decode_tpgs_state(int st, char * b, int blen)
 }
 
 static int
-uds_referral_descriptor_str(char * b, int blen, const unsigned char * dp,
+uds_referral_descriptor_str(char * b, int blen, const uint8_t * dp,
                             int alen, const char * lip)
 {
     int n = 0;
     int dlen = alen - 2;
     int k, j, g, f, tpgd;
-    const unsigned char * tp;
+    const uint8_t * tp;
     uint64_t ull;
     char c[40];
 
@@ -1280,13 +1283,13 @@ static const char * dd_usage_reason_str_arr[] = {
 /* Decode descriptor format sense descriptors (assumes sense buffer is
  * in descriptor format) */
 int
-sg_get_sense_descriptors_str(const char * lip, const unsigned char * sbp,
+sg_get_sense_descriptors_str(const char * lip, const uint8_t * sbp,
                              int sb_len, int blen, char * b)
 {
     int add_sb_len, add_d_len, desc_len, k, j, sense_key;
     int n, progress, pr, rem;
     bool processed;
-    const unsigned char * descp;
+    const uint8_t * descp;
     const char * dtsp = "   >> descriptor too short";
     const char * eccp = "Extended copy command";
     const char * ddp = "destination device";
@@ -1519,8 +1522,7 @@ sg_get_sense_descriptors_str(const char * lip, const unsigned char * sbp,
             break;
         case 0xe:       /* Added in SPC-5 rev 6 (for Bind/Unbind) */
             n += scnpr(b + n, blen - n, "Device designation\n");
-            j = (int)(sizeof(dd_usage_reason_str_arr) /
-                      sizeof(dd_usage_reason_str_arr[0]));
+            j = (int)SG_ARRAY_SIZE(dd_usage_reason_str_arr);
             if (descp[3] < j)
                 n += scnpr(b + n, blen - n, "%s    Usage reason: %s\n", lip,
                            dd_usage_reason_str_arr[descp[3]]);
@@ -1576,7 +1578,7 @@ sg_get_sense_descriptors_str(const char * lip, const unsigned char * sbp,
  * That extra field information may be available in the ATA pass-through
  * results log page parameter with the corresponding 'log_index'. */
 static int
-sg_get_sense_sat_pt_fixed_str(const char * lip, const unsigned char * sp,
+sg_get_sense_sat_pt_fixed_str(const char * lip, const uint8_t * sp,
                               int slen, int blen, char * b)
 {
     int n = 0;
@@ -1606,7 +1608,7 @@ sg_get_sense_sat_pt_fixed_str(const char * lip, const unsigned char * sp,
 
 /* Fetch sense information */
 int
-sg_get_sense_str(const char * lip, const unsigned char * sbp, int sb_len,
+sg_get_sense_str(const char * lip, const uint8_t * sbp, int sb_len,
                  bool raw_sinfo, int cblen, char * cbp)
 {
     bool descriptor_format = false;
@@ -1824,7 +1826,7 @@ check_raw:
 
 /* Print sense information */
 void
-sg_print_sense(const char * leadin, const unsigned char * sbp, int sb_len,
+sg_print_sense(const char * leadin, const uint8_t * sbp, int sb_len,
                bool raw_sinfo)
 {
     uint32_t pg_sz = sg_get_page_size();
@@ -1839,111 +1841,189 @@ sg_print_sense(const char * leadin, const unsigned char * sbp, int sb_len,
     free(free_cp);
 }
 
-/* Following examines exit_status and outputs a clear error message to
- * warnings_strm (usually stderr) if one is known and returns true.
- * Otherwise it doesn't print anything and returns false. Note that
- * if exit_status==0 then returns true but prints nothing and if
- * exit_status<0 ("some error occurred") false is returned. If leadin is
- * non-NULL then it is printed before the error message. */
-bool
-sg_if_can2stderr(const char * leadin, int exit_status)
-{
-    const char * s = leadin ? leadin : "";
+struct value_2names_t {
+    int value;
+    const char * name;
+    const char * name2;
+};
 
+/* These are the error (or warning) exit status values and their associated
+ * strings. They combine utility input syntax errors, SCSI status and sense
+ * key categories, OS errors (e.g. ENODEV for device not found), one that
+ * indicates NVMe non-zero status plus listing those that a Unix OS generates
+ * for any executable (that fails). The convention is 0 means no error and
+ * that in Unix the exit status is an (unsigned) 8 bit value. */
+static struct value_2names_t exit_str_arr[] = {
+    {0,  "No errors", NULL},
+    {1,  "Syntax error", NULL},
+    {2,  "Device not ready", "sense key"},
+    {3,  "Medium or hardware error", "sense key (plus blank check for tape)"},
+    {5,  "Illegal request", "sense key, apart from Invalid opcode"},
+    {6,  "Unit attention", "sense key"},
+    {7,  "Data protect", "sense key, write protected media?"},
+    {9,  "Illegal request, Invalid opcode", "sense key + asc,ascq"},
+    {10, "Copy aborted", "sense key"},
+    {11, "Aborted command",
+         "sense key, other than protection related (asc=0x10)"},
+    {14, "Miscompare", "sense key"},
+    {15, "File error", NULL},
+    {17, "Illegal request with Info field", NULL},
+    {18, "Medium or hardware error with Info", NULL},
+    {20, "No sense key", "probably additional sense code"},
+    {21, "Recovered error (warning)", "sense key"},  /* Warning not error */
+    {24, "Reservation conflict", "SCSI status"},
+    {25, "Condition met", "SCSI status"},       /* from PRE-FETCH command */
+    {26, "Busy", "SCSI status"},   /* more likely if SAS expander present */
+    {27, "Task set full", "SCSI status"},
+    {28, "ACA aactive", "SCSI status"},
+    {29, "Task aborted", "SCSI status"},
+    {33, "SCSI command timeout", NULL},         /* OS timed out command */
+    {40, "Aborted command, protection error", NULL},
+    {41, "Aborted command, protection error with Info field", NULL},
+    {48, "NVMe command with non-zero status", NULL},
+    {50, "An OS error occurred", "(errno > 46)"},
+    /* OS errors (errno in Unix) from 1 to 46 mapped into this range */
+    {97, "Malformed SCSI command", "trouble building command"},
+    {98, "Some other sense error", "try '-v' option for more information"},
+    {99, "Some other error", "possible transport of driver issue"},
+    /* 100 through 125 unused */
+
+    /* The following error codes are generated by a Unix OS */
+    /* 126: utility did not have executable permissions */
+    /* 127: utility to be executed not found */
+    /* 128 + <signal_number>: signal number that aborted the utility.
+                              real time signals start at offset SIGRTMIN */
+    /* 255: utility returned an exit status > 255 (and probably < 0) */
+    {0xffff, NULL, NULL},       /* end marking sentinel */
+};
+
+/* This examines exit_status and if an error message is known it is output
+ * as a string to 'b' and true is returned. If 'longer' is true and extra
+ * information is available then it is added to the output. If no error
+ * message is available a null character is output and false is returned.
+ * If exit_status is zero (no error) and 'longer' is true then the string
+ * 'No errors' is output; if 'longer' is false then a null character is
+ * output; in both cases true is returned. If exit_status is negative then
+ * a null character is output and false is returned. All messages are a
+ * single line (less than 80 characters) with no trailing LF. The output
+ * string including the trailing null character is no longer than b_len. */
+bool sg_exit2str(int exit_status, bool longer, int b_len, char *b)
+{
+    const struct value_2names_t * ess = exit_str_arr;
+
+    if ((b_len < 1) || (NULL == b))
+        return false;
+    /* if there is a valid buffer, initialize it to a valid empty string */
+    b[0] = '\0';
     if (exit_status < 0)
         return false;
-    else if (0 == exit_status)
+    else if (0 == exit_status) {
+        if (longer)
+            snprintf(b, b_len, "%s", ess->name);
         return true;
+    }
 
-    switch (exit_status) {
-    case SG_LIB_CAT_NOT_READY:          /* 2 */
-        pr2ws("%sDevice not ready\n", s);
+    if ((exit_status > SG_LIB_OS_BASE_ERR) &&       /* 51 to 96 inclusive */
+        (exit_status < SG_LIB_CAT_MALFORMED)) {
+        snprintf(b, b_len, "%s%s", (longer ? "OS error: " : ""),
+                 safe_strerror(exit_status - SG_LIB_OS_BASE_ERR));
         return true;
-    case SG_LIB_CAT_MEDIUM_HARD:        /* 3 */
-        pr2ws("%sMedium or hardware error\n", s); /* 3 sense keys: Medium, */
-        return true;    /* hardware error or 'Blank check' for tapes */
-    case SG_LIB_CAT_UNIT_ATTENTION:     /* 6 */
-        pr2ws("%sDevice reported 'Unit attention'\n", s);
+    }
+    for ( ; ess->name; ++ess) {
+        if (exit_status == ess->value)
+            break;
+    }
+    if (ess->name) {
+        if (longer && ess->name2)
+            snprintf(b, b_len, "%s, %s", ess->name, ess->name2);
+        else
+            snprintf(b, b_len, "%s", ess->name);
         return true;
-    case SG_LIB_CAT_DATA_PROTECT:       /* 7 */
-        pr2ws("%sDevice reported 'Data protect', read-only?\n", s);
-        return true;
-    case SG_LIB_CAT_COPY_ABORTED:       /* 10 */
-        pr2ws("%sCopy aborted\n", s);
-        return true;
-    case SG_LIB_CAT_ABORTED_COMMAND:    /* 11 */
-        pr2ws("%sCommand aborted\n", s);
-        return true;
-    case SG_LIB_CAT_MISCOMPARE:         /* 14 */
-        pr2ws("%sMiscompare\n", s);
-        return true;
-    case SG_LIB_CAT_RES_CONFLICT:       /* 24 */
-        pr2ws("%sReservation conflict\n", s);
-        return true;
-    case SG_LIB_CAT_BUSY:               /* 26 */
-        pr2ws("%sDevice is busy, try again\n", s);
-        return true;
-    case SG_LIB_CAT_TASK_ABORTED:       /* 29 */
-        pr2ws("%sTask aborted\n", s);
-        return true;
-    case SG_LIB_CAT_TIMEOUT:            /* 33 */
-        pr2ws("%sTime out\n", s);
-        return true;
-    case SG_LIB_CAT_PROTECTION:         /* 40 */
-        pr2ws("%sProtection error\n", s);
-        return true;
-    case SG_LIB_NVME_STATUS:            /* 48 */
-        pr2ws("%sNVMe error (non-zero status)\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + EACCES:   /* 50 + */
-        pr2ws("%sPermission denied\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + ENOMEM:
-        pr2ws("%sUtility unable to allocate memory\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + ENOTTY:
-        pr2ws("%sInappropriate I/O control operation\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + EPERM:
-        pr2ws("%sNot permitted\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + EINTR:
-        pr2ws("%sInterrupted system call\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + EIO:
-        pr2ws("%sInput/output error\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + ENODEV:
-        pr2ws("%sNo such device\n", s);
-        return true;
-    case SG_LIB_OS_BASE_ERR + ENOENT:
-        pr2ws("%sNo such file or directory\n", s);
-        return true;
-    default:
-        return false;
     }
     return false;
 }
 
+static bool
+sg_if_can2fp(const char * leadin, int exit_status, FILE * fp)
+{
+    char b[256];
+    const char * s = leadin ? leadin : "";
+
+    if (0 == exit_status)
+        return true;    /* don't print anything */
+    else if (sg_exit2str(exit_status, false, sizeof(b), b)) {
+        fprintf(fp, "%s%s\n", s, b);
+        return true;
+    } else
+        return false;
+}
+
+/* This examines exit_status and if an error message is known it is output
+ * to stdout/stderr and true is returned. If no error message is
+ * available nothing is output and false is returned. If exit_status is
+ * zero (no error) nothing is output and true is returned. If exit_status
+ * is negative then nothing is output and false is returned. If leadin is
+ * non-NULL then it is printed before the error message. All messages are
+ * a single line with a trailing LF. */
+bool
+sg_if_can2stdout(const char * leadin, int exit_status)
+{
+    return sg_if_can2fp(leadin, exit_status, stdout);
+}
+
+/* See sg_if_can2stdout() comments */
+bool
+sg_if_can2stderr(const char * leadin, int exit_status)
+{
+    return sg_if_can2fp(leadin, exit_status,
+                        sg_warnings_strm ? sg_warnings_strm : stderr);
+}
+
 /* If os_err_num is within bounds then the returned value is 'os_err_num +
- * SG_LIB_OS_BASE_ERR' otherwise -1 is returned. If os_err_num is 0 then 0
- * is returned. */
+ * SG_LIB_OS_BASE_ERR' otherwise SG_LIB_OS_BASE_ERR is returned. If
+ * os_err_num is 0 then 0 is returned. */
 int
 sg_convert_errno(int os_err_num)
 {
     if (os_err_num <= 0) {
-        if (os_err_num < -1)
-            return -1;
+        if (os_err_num < 0)
+            return SG_LIB_OS_BASE_ERR;
         return os_err_num;
     }
     if (os_err_num < (SG_LIB_CAT_MALFORMED - SG_LIB_OS_BASE_ERR))
         return SG_LIB_OS_BASE_ERR + os_err_num;
-    return -1;
+    return SG_LIB_OS_BASE_ERR;
+}
+
+static const char * const bad_sense_cat = "Bad sense category";
+
+/* Yield string associated with sense category. Returns 'buff' (or pointer
+ * to "Bad sense category" if 'buff' is NULL). If sense_cat unknown then
+ * yield "Sense category: <sense_cat)val>" string. The original 'sense
+ * category' concept has been expanded to most detected errors and is
+ * returned by these utilties as their exit status value (an (unsigned)
+ * 8 bit value where 0 means good (i.e. no errors)).  Uses sg_exit2str()
+ * function. */
+const char *
+sg_get_category_sense_str(int sense_cat, int b_len, char * b, int verbose)
+{
+    int n;
+
+    if (NULL == b)
+        return bad_sense_cat;
+    if (b_len <= 0)
+        return b;
+    if (! sg_exit2str(sense_cat, (verbose > 0), b_len, b)) {
+        n = scnpr(b, b_len, "Sense category: %d", sense_cat);
+        if ((0 == verbose) && (n < (b_len - 1)))
+            scnpr(b + n, b_len - n, ", try '-v' option for more information");
+    }
+    return b;   /* Note that a valid C string is returned in all cases */
 }
 
 /* See description in sg_lib.h header file */
 bool
-sg_scsi_normalize_sense(const unsigned char * sbp, int sb_len,
+sg_scsi_normalize_sense(const uint8_t * sbp, int sb_len,
                         struct sg_scsi_sense_hdr * sshp)
 {
     uint8_t resp_code;
@@ -1983,7 +2063,7 @@ sg_scsi_normalize_sense(const unsigned char * sbp, int sb_len,
 /* Returns a SG_LIB_CAT_* value. If cannot decode sense buffer (sbp) or a
  * less common sense key then return SG_LIB_CAT_SENSE .*/
 int
-sg_err_category_sense(const unsigned char * sbp, int sb_len)
+sg_err_category_sense(const uint8_t * sbp, int sb_len)
 {
     struct sg_scsi_sense_hdr ssh;
 
@@ -2032,7 +2112,7 @@ sg_err_category_sense(const unsigned char * sbp, int sb_len)
 
 /* Beware: gives wrong answer for variable length command (opcode=0x7f) */
 int
-sg_get_command_size(unsigned char opcode)
+sg_get_command_size(uint8_t opcode)
 {
     switch ((opcode >> 5) & 0x7) {
     case 0:
@@ -2050,7 +2130,7 @@ sg_get_command_size(unsigned char opcode)
 }
 
 void
-sg_get_command_name(const unsigned char * cmdp, int peri_type, int buff_len,
+sg_get_command_name(const uint8_t * cmdp, int peri_type, int buff_len,
                     char * buff)
 {
     int service_action;
@@ -2103,7 +2183,7 @@ static struct op_code2sa_t op_code2sa_arr[] = {
 };
 
 void
-sg_get_opcode_sa_name(unsigned char cmd_byte0, int service_action,
+sg_get_opcode_sa_name(uint8_t cmd_byte0, int service_action,
                       int peri_type, int buff_len, char * buff)
 {
     int d_pdt;
@@ -2145,7 +2225,7 @@ sg_get_opcode_sa_name(unsigned char cmd_byte0, int service_action,
 }
 
 void
-sg_get_opcode_name(unsigned char cmd_byte0, int peri_type, int buff_len,
+sg_get_opcode_name(uint8_t cmd_byte0, int peri_type, int buff_len,
                    char * buff)
 {
     const struct sg_lib_value_name_t * vnp;
@@ -2187,6 +2267,48 @@ sg_get_opcode_name(unsigned char cmd_byte0, int peri_type, int buff_len,
     }
 }
 
+/* Fetch NVMe command name given first byte (byte offset 0 in 64 byte
+ * command) of command. Gets Admin NVMe command name if 'admin' is true
+ * (e.g. opcode=0x6 -> Identify), otherwise gets NVM command set name
+ * (e.g. opcode=0 -> Flush). Returns 'buff'. */
+char *
+sg_get_nvme_opcode_name(uint8_t cmd_byte0, bool admin, int buff_len,
+                        char * buff)
+{
+    const struct sg_lib_simple_value_name_t * vnp = admin ?
+                        sg_lib_nvme_admin_cmd_arr : sg_lib_nvme_nvm_cmd_arr;
+
+    if ((NULL == buff) || (buff_len < 1))
+        return buff;
+    else if (1 == buff_len) {
+        buff[0] = '\0';
+        return buff;
+    }
+    for ( ; vnp->name; ++vnp) {
+        if (cmd_byte0 == (uint8_t)vnp->value) {
+            snprintf(buff, buff_len, "%s", vnp->name);
+            return buff;
+        }
+    }
+    if (admin) {
+        if (cmd_byte0 >= 0xc0)
+            snprintf(buff, buff_len, "Vendor specific opcode: 0x%x",
+                     cmd_byte0);
+        else if (cmd_byte0 >= 0x80)
+            snprintf(buff, buff_len, "Command set specific opcode: 0x%x",
+                     cmd_byte0);
+        else
+            snprintf(buff, buff_len, "Unknown opcode: 0x%x", cmd_byte0);
+    } else {    /* NVM (non-Admin) command set */
+        if (cmd_byte0 >= 0x80)
+            snprintf(buff, buff_len, "Vendor specific opcode: 0x%x",
+                     cmd_byte0);
+        else
+            snprintf(buff, buff_len, "Unknown opcode: 0x%x", cmd_byte0);
+    }
+    return buff;
+}
+
 /* Iterates to next designation descriptor in the device identification
  * VPD page. The 'initial_desig_desc' should point to start of first
  * descriptor with 'page_len' being the number of valid bytes in that
@@ -2197,12 +2319,12 @@ sg_get_opcode_name(unsigned char cmd_byte0, int peri_type, int buff_len,
  * termination. Matches association, designator_type and/or code_set when
  * any of those values are greater than or equal to zero. */
 int
-sg_vpd_dev_id_iter(const unsigned char * initial_desig_desc, int page_len,
+sg_vpd_dev_id_iter(const uint8_t * initial_desig_desc, int page_len,
                    int * off, int m_assoc, int m_desig_type, int m_code_set)
 {
     bool fltr = ((m_assoc >= 0) || (m_desig_type >= 0) || (m_code_set >= 0));
     int k = *off;
-    const unsigned char * bp = initial_desig_desc;
+    const uint8_t * bp = initial_desig_desc;
 
     while ((k + 3) < page_len) {
         k = (k < 0) ? 0 : (k + bp[k + 3] + 4);
@@ -2226,174 +2348,6 @@ sg_vpd_dev_id_iter(const unsigned char * initial_desig_desc, int page_len,
         return 0;
     }
     return (k == page_len) ? -1 : -2;
-}
-
-static const char * const bad_sense_cat = "Bad sense category";
-
-/* Yield string associated with sense category. Returns 'buff' (or pointer
- * to "Bad sense category" if 'buff' is NULL). If sense_cat unknown then
- * yield "Sense category: <sense_cat>" string. */
-const char *
-sg_get_category_sense_str(int sense_cat, int buff_len, char * buff,
-                          int verbose)
-{
-    int n;
-
-    if (NULL == buff)
-        return bad_sense_cat;
-    if (buff_len <= 0)
-        return buff;
-    switch (sense_cat) {
-    case SG_LIB_CAT_CLEAN:              /* 0 */
-        scnpr(buff, buff_len, "No errors");
-        break;
-    case SG_LIB_SYNTAX_ERROR:           /* 1 */
-        scnpr(buff, buff_len, "Syntax error");
-        break;
-    case SG_LIB_CAT_NOT_READY:          /* 2 */
-        n = scnpr(buff, buff_len, "Not ready");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_CAT_MEDIUM_HARD:        /* 3 */
-        n = scnpr(buff, buff_len, "Medium or hardware error");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key (plus blank check)");
-        break;
-    case SG_LIB_CAT_ILLEGAL_REQ:        /* 5 */
-        n = scnpr(buff, buff_len, "Illegal request");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key, apart from Invalid "
-                  "opcode");
-        break;
-    case SG_LIB_CAT_UNIT_ATTENTION:     /* 6 */
-        n = scnpr(buff, buff_len, "Unit attention");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_CAT_DATA_PROTECT:       /* 7 */
-        n = scnpr(buff, buff_len, "Data protect");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key, write protected "
-                     "media?");
-        break;
-    case SG_LIB_CAT_INVALID_OP:         /* 9 */
-        n = scnpr(buff, buff_len, "Illegal request, invalid opcode");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_CAT_COPY_ABORTED:       /* 10 */
-        n = scnpr(buff, buff_len, "Copy aborted");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_CAT_ABORTED_COMMAND:    /* 11 */
-        n = scnpr(buff, buff_len, "Aborted command");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key, other than "
-                     "protection related (asc=0x10)");
-        break;
-    case SG_LIB_CAT_MISCOMPARE:         /* 14 */
-        n = scnpr(buff, buff_len, "Miscompare");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_FILE_ERROR:             /* 15 */
-        scnpr(buff, buff_len, "File error");
-        break;
-    case SG_LIB_CAT_ILLEGAL_REQ_WITH_INFO:  /* 17 */
-        scnpr(buff, buff_len, "Illegal request with info");
-        break;
-    case SG_LIB_CAT_MEDIUM_HARD_WITH_INFO:  /* 18 */
-        scnpr(buff, buff_len, "Medium or hardware error with info");
-        break;
-    case SG_LIB_CAT_NO_SENSE:           /* 20 */
-        n = scnpr(buff, buff_len, "No sense key");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " probably additional sense "
-                     "information");
-        break;
-    case SG_LIB_CAT_RECOVERED:          /* 21 */
-        n = scnpr(buff, buff_len, "Recovered error");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " sense key");
-        break;
-    case SG_LIB_CAT_RES_CONFLICT:       /* 24 */
-        n = scnpr(buff, buff_len, "Reservation conflict");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_CONDITION_MET:      /* 25 */
-        n = scnpr(buff, buff_len, "Condition met");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_BUSY:               /* 26 */
-        n = scnpr(buff, buff_len, "Busy");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_TS_FULL:            /* 27 */
-        n = scnpr(buff, buff_len, "Task set full");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_ACA_ACTIVE:         /* 28 */
-        n = scnpr(buff, buff_len, "ACA active");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_TASK_ABORTED:       /* 29 */
-        n = scnpr(buff, buff_len, "Task aborted");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " SCSI status");
-        break;
-    case SG_LIB_CAT_TIMEOUT:            /* 33 */
-        scnpr(buff, buff_len, "SCSI command timeout");
-        break;
-    case SG_LIB_CAT_PROTECTION:         /* 40 */
-        n = scnpr(buff, buff_len, "Aborted command, protection");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " information (PI) problem");
-        break;
-    case SG_LIB_CAT_PROTECTION_WITH_INFO: /* 41 */
-        n = scnpr(buff, buff_len, "Aborted command with info, protection");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " information (PI) problem");
-        break;
-    case SG_LIB_CAT_MALFORMED:          /* 97 */
-        n = scnpr(buff, buff_len, "Malformed response");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, " to SCSI command");
-        break;
-    case SG_LIB_CAT_SENSE:              /* 98 */
-        n = scnpr(buff, buff_len, "Some other sense data problem");
-        if (verbose && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, ", try '-v' option for more "
-                     "information");
-        break;
-    case SG_LIB_CAT_OTHER:              /* 99 */
-        n = scnpr(buff, buff_len, "Some other error/warning has occurred");
-        if ((0 == verbose) && (n < (buff_len - 1)))
-            scnpr(buff + n, buff_len - n, ", possible transport of driver "
-                     "issue");
-        break;
-    default:
-        if ((sense_cat > SG_LIB_OS_BASE_ERR) &&
-            (sense_cat < (SG_LIB_OS_BASE_ERR + 47))) {
-            int k = sense_cat - SG_LIB_OS_BASE_ERR;
-
-            n = scnpr(buff, buff_len, "OS error: %s [%d]", safe_strerror(k),
-                      k);
-        } else {
-            n = scnpr(buff, buff_len, "Sense category: %d", sense_cat);
-            if ((0 == verbose) && (n < (buff_len - 1)))
-                scnpr(buff + n, buff_len - n, ", try '-v' option for more "
-                      "information");
-        }
-        break;
-    }
-    return buff;
 }
 
 static const char * sg_sfs_spc_reserved = "SPC Reserved";
@@ -2686,7 +2640,7 @@ dStrHexFp(const char* str, int len, int no_ascii, FILE * fp)
 {
     const char * p = str;
     const char * formatstr;
-    unsigned char c;
+    uint8_t c;
     char buff[82];
     int a = 0;
     int bpstart = 5;
@@ -2711,7 +2665,7 @@ dStrHexFp(const char* str, int len, int no_ascii, FILE * fp)
             c = *p++;
             if (bpos == (bpstart + (8 * 3)))
                 bpos++;
-            scnpr(&buff[bpos], blen - bpos, "%.2x", (int)(unsigned char)c);
+            scnpr(&buff[bpos], blen - bpos, "%.2x", (int)(uint8_t)c);
             buff[bpos + 2] = ' ';
             if ((k > 0) && (0 == ((k + 1) % 16))) {
                 trimTrailingSpaces(buff);
@@ -2737,7 +2691,7 @@ dStrHexFp(const char* str, int len, int no_ascii, FILE * fp)
         bpos += 3;
         if (bpos == (bpstart + (9 * 3)))
             bpos++;
-        scnpr(&buff[bpos], blen - bpos, "%.2x", (int)(unsigned char)c);
+        scnpr(&buff[bpos], blen - bpos, "%.2x", (int)(uint8_t)c);
         buff[bpos + 2] = ' ';
         if (no_ascii)
             buff[cpos++] = ' ';
@@ -2793,7 +2747,7 @@ int
 dStrHexStr(const char * str, int len, const char * leadin, int format,
            int b_len, char * b)
 {
-    unsigned char c;
+    uint8_t c;
     int bpstart, bpos, k, n, prior_ascii_len;
     bool want_ascii;
     char buff[DSHS_LINE_BLEN + 2];
@@ -2831,7 +2785,7 @@ dStrHexStr(const char * str, int len, const char * leadin, int format,
         if (bpos == (bpstart + ((DSHS_BPL / 2) * 3)))
             bpos++;     /* for extra space in middle of each line's hex */
         scnpr(buff + bpos, (int)sizeof(buff) - bpos, "%.2x",
-              (int)(unsigned char)c);
+              (int)(uint8_t)c);
         buff[bpos + 2] = ' ';
         if (want_ascii)
             a[k % DSHS_BPL] = my_isprint(c) ? c : '.';
@@ -2890,7 +2844,7 @@ sg_is_big_endian()
 {
     union u_t {
         uint16_t s;
-        unsigned char c[sizeof(uint16_t)];
+        uint8_t c[sizeof(uint16_t)];
     } u;
 
     u.s = 0x0102;
@@ -2948,7 +2902,7 @@ dWordHex(const uint16_t* words, int num, int no_ascii, bool swapb)
     const uint16_t * p = words;
     uint16_t c;
     char buff[82];
-    unsigned char upp, low;
+    uint8_t upp, low;
     int a = 0;
     const int bpstart = 3;
     const int cpstart = 52;
@@ -3446,6 +3400,14 @@ sg_memalign(uint32_t num_bytes, uint32_t align_to, uint8_t ** buff_to_free,
         return res;
     }
 #endif
+}
+
+bool
+sg_is_aligned(const void * pointer, int byte_count)
+{
+    return 0 == ((sg_uintptr_t)pointer %
+                 ((byte_count > 0) ? (uint32_t)byte_count :
+                                     sg_get_page_size()));
 }
 
 const char *

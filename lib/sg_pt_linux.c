@@ -5,7 +5,7 @@
  * license that can be found in the BSD_LICENSE file.
  */
 
-/* sg_pt_linux version 1.37 20180126 */
+/* sg_pt_linux version 1.39 20180219 */
 
 
 #include <stdio.h>
@@ -64,27 +64,20 @@ static const char * linux_host_bytes[] = {
     "DID_MEDIUM_ERROR",
 };
 
-#define LINUX_HOST_BYTES_SZ \
-        (int)(sizeof(linux_host_bytes) / sizeof(linux_host_bytes[0]))
-
 static const char * linux_driver_bytes[] = {
     "DRIVER_OK", "DRIVER_BUSY", "DRIVER_SOFT", "DRIVER_MEDIA",
     "DRIVER_ERROR", "DRIVER_INVALID", "DRIVER_TIMEOUT", "DRIVER_HARD",
     "DRIVER_SENSE"
 };
 
-#define LINUX_DRIVER_BYTES_SZ \
-    (int)(sizeof(linux_driver_bytes) / sizeof(linux_driver_bytes[0]))
-
 #if 0
+
 static const char * linux_driver_suggests[] = {
     "SUGGEST_OK", "SUGGEST_RETRY", "SUGGEST_ABORT", "SUGGEST_REMAP",
     "SUGGEST_DIE", "UNKNOWN","UNKNOWN","UNKNOWN",
     "SUGGEST_SENSE"
 };
 
-#define LINUX_DRIVER_SUGGESTS_SZ \
-    (int)(sizeof(linux_driver_suggests) / sizeof(linux_driver_suggests[0]))
 #endif
 
 /*
@@ -431,15 +424,20 @@ construct_scsi_pt_obj()
 void
 destruct_scsi_pt_obj(struct sg_pt_base * vp)
 {
-    struct sg_pt_linux_scsi * ptp = &vp->impl;
 
-    if (ptp->free_nvme_id_ctlp) {
-        free(ptp->free_nvme_id_ctlp);
-        ptp->free_nvme_id_ctlp = NULL;
-        ptp->nvme_id_ctlp = NULL;
+    if (NULL == vp)
+        pr2ws(">>>>>>> Warning: %s called with NULL pointer\n", __func__);
+    else {
+        struct sg_pt_linux_scsi * ptp = &vp->impl;
+
+        if (ptp->free_nvme_id_ctlp) {
+            free(ptp->free_nvme_id_ctlp);
+            ptp->free_nvme_id_ctlp = NULL;
+            ptp->nvme_id_ctlp = NULL;
+        }
+        if (ptp)
+            free(ptp);
     }
-    if (ptp)
-        free(ptp);
 }
 
 /* Remembers previous device file descriptor */
@@ -457,6 +455,8 @@ clear_scsi_pt_obj(struct sg_pt_base * vp)
         is_bsg = ptp->is_bsg;
         is_nvme = ptp->is_nvme;
         nvme_nsid = ptp->nvme_nsid;
+        if (ptp->free_nvme_id_ctlp)
+            free(ptp->free_nvme_id_ctlp);
         memset(ptp, 0, sizeof(struct sg_pt_linux_scsi));
         ptp->io_hdr.guard = 'Q';
 #ifdef BSG_PROTOCOL_SCSI
@@ -515,7 +515,7 @@ get_pt_file_handle(const struct sg_pt_base * vp)
 }
 
 void
-set_scsi_pt_cdb(struct sg_pt_base * vp, const unsigned char * cdb,
+set_scsi_pt_cdb(struct sg_pt_base * vp, const uint8_t * cdb,
                 int cdb_len)
 {
     struct sg_pt_linux_scsi * ptp = &vp->impl;
@@ -527,7 +527,7 @@ set_scsi_pt_cdb(struct sg_pt_base * vp, const unsigned char * cdb,
 }
 
 void
-set_scsi_pt_sense(struct sg_pt_base * vp, unsigned char * sense,
+set_scsi_pt_sense(struct sg_pt_base * vp, uint8_t * sense,
                   int max_sense_len)
 {
     struct sg_pt_linux_scsi * ptp = &vp->impl;
@@ -541,7 +541,7 @@ set_scsi_pt_sense(struct sg_pt_base * vp, unsigned char * sense,
 
 /* Setup for data transfer from device */
 void
-set_scsi_pt_data_in(struct sg_pt_base * vp, unsigned char * dxferp,
+set_scsi_pt_data_in(struct sg_pt_base * vp, uint8_t * dxferp,
                     int dxfer_ilen)
 {
     struct sg_pt_linux_scsi * ptp = &vp->impl;
@@ -556,7 +556,7 @@ set_scsi_pt_data_in(struct sg_pt_base * vp, unsigned char * dxferp,
 
 /* Setup for data transfer toward device */
 void
-set_scsi_pt_data_out(struct sg_pt_base * vp, const unsigned char * dxferp,
+set_scsi_pt_data_out(struct sg_pt_base * vp, const uint8_t * dxferp,
                      int dxfer_olen)
 {
     struct sg_pt_linux_scsi * ptp = &vp->impl;
@@ -570,7 +570,7 @@ set_scsi_pt_data_out(struct sg_pt_base * vp, const unsigned char * dxferp,
 }
 
 void
-set_pt_metadata_xfer(struct sg_pt_base * vp, unsigned char * dxferp,
+set_pt_metadata_xfer(struct sg_pt_base * vp, uint8_t * dxferp,
                      uint32_t dxfer_len, bool out_true)
 {
     struct sg_pt_linux_scsi * ptp = &vp->impl;
@@ -605,7 +605,7 @@ set_scsi_pt_task_management(struct sg_pt_base * vp, int tmf_code)
     struct sg_pt_linux_scsi * ptp = &vp->impl;
 
     ptp->io_hdr.subprotocol = 1;        /* SCSI task management function */
-    ptp->tmf_request[0] = (unsigned char)tmf_code;      /* assume it fits */
+    ptp->tmf_request[0] = (uint8_t)tmf_code;      /* assume it fits */
     ptp->io_hdr.request = (__u64)(sg_uintptr_t)(&(ptp->tmf_request[0]));
     ptp->io_hdr.request_len = 1;
 }
@@ -735,7 +735,7 @@ get_scsi_pt_transport_err_str(const struct sg_pt_base * vp, int max_b_len,
     m = max_b_len;
     n = 0;
     if (hs) {
-        if ((hs < 0) || (hs >= LINUX_HOST_BYTES_SZ))
+        if ((hs < 0) || (hs >= (int)SG_ARRAY_SIZE(linux_host_bytes)))
             n = snprintf(cp, m, "Host_status=0x%02x is invalid\n", hs);
         else
             n = snprintf(cp, m, "Host_status=0x%02x [%s]\n", hs,
@@ -748,11 +748,11 @@ get_scsi_pt_transport_err_str(const struct sg_pt_base * vp, int max_b_len,
     }
     cp += n;
     driv = ds & SG_LIB_DRIVER_MASK;
-    if (driv < LINUX_DRIVER_BYTES_SZ)
+    if (driv < (int)SG_ARRAY_SIZE(linux_driver_bytes))
         driv_cp = linux_driver_bytes[driv];
 #if 0
     sugg = (ds & SG_LIB_SUGGEST_MASK) >> 4;
-    if (sugg < LINUX_DRIVER_SUGGESTS_SZ)
+    if (sugg < SG_ARRAY_SIZE(linux_driver_suggests)
         sugg_cp = linux_driver_suggests[sugg];
 #endif
     n = snprintf(cp, m, "Driver_status=0x%02x [%s]\n", ds, driv_cp);
@@ -836,8 +836,8 @@ do_scsi_pt_v3(struct sg_pt_linux_scsi * ptp, int fd, int time_secs,
     /* convert v4 to v3 header */
     v3_hdr.interface_id = 'S';
     v3_hdr.dxfer_direction = SG_DXFER_NONE;
-    v3_hdr.cmdp = (unsigned char *)(long)ptp->io_hdr.request;
-    v3_hdr.cmd_len = (unsigned char)ptp->io_hdr.request_len;
+    v3_hdr.cmdp = (uint8_t *)(long)ptp->io_hdr.request;
+    v3_hdr.cmd_len = (uint8_t)ptp->io_hdr.request_len;
     if (ptp->io_hdr.din_xfer_len > 0) {
         if (ptp->io_hdr.dout_xfer_len > 0) {
             if (verbose)
@@ -853,8 +853,8 @@ do_scsi_pt_v3(struct sg_pt_linux_scsi * ptp, int fd, int time_secs,
         v3_hdr.dxfer_direction =  SG_DXFER_TO_DEV;
     }
     if (ptp->io_hdr.response && (ptp->io_hdr.max_response_len > 0)) {
-        v3_hdr.sbp = (unsigned char *)(long)ptp->io_hdr.response;
-        v3_hdr.mx_sb_len = (unsigned char)ptp->io_hdr.max_response_len;
+        v3_hdr.sbp = (uint8_t *)(long)ptp->io_hdr.response;
+        v3_hdr.mx_sb_len = (uint8_t)ptp->io_hdr.max_response_len;
     }
     v3_hdr.pack_id = (int)ptp->io_hdr.spare_in;
     if (BSG_FLAG_Q_AT_HEAD & ptp->io_hdr.flags)
