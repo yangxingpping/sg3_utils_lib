@@ -16,6 +16,7 @@ AC_PROG_LIBTOOL
 
 # check for headers
 AC_HEADER_STDC
+AC_CHECK_HEADERS([byteswap.h], [], [], [])
 
 # check for functions
 AC_CHECK_FUNCS(getopt_long,
@@ -33,6 +34,7 @@ pthread_lib=${LIBS%${SAVED_LIBS}}
 AC_CHECK_FUNCS([pthread_cancel pthread_kill])
 LIBS=$SAVED_LIBS
 AC_SUBST(PTHREAD_LIB, [$pthread_lib])
+
 AC_SUBST(GETOPT_O_FILES)
 
 AC_CANONICAL_HOST
@@ -98,6 +100,10 @@ AC_ARG_ENABLE([scsistrings],
 AC_ARG_ENABLE([nvme-supp],
   AC_HELP_STRING([--disable-nvme-supp], [remove all or most NVMe code]),
   [AC_DEFINE_UNQUOTED(IGNORE_NVME, 1, [compile out NVMe support], )], [])
+
+AC_ARG_ENABLE([fast-lebe],
+  AC_HELP_STRING([--disable-fast-lebe], [use generic little-endian/big-endian code instead]),
+  [AC_DEFINE_UNQUOTED(IGNORE_FAST_LEBE, 1, [use generic little-endian/big-endian instead], )], [])
 
 AC_OUTPUT(Makefile include/Makefile lib/Makefile)
 
