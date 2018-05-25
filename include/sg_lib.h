@@ -14,8 +14,8 @@
  * The intention is to keep this file and the related sg_lib.c file
  * as open source and encourage their unencumbered use.
  *
- * Current version number is in the sg_lib.c file and can be accessed
- * with the sg_lib_version() function.
+ * Current version number of this library is in the sg_lib_data.c file and
+ * can be accessed with the sg_lib_version() function.
  */
 
 
@@ -27,7 +27,7 @@
  * http://www.t10.org . Virtually all devices in the Linux SCSI subsystem
  * utilize SCSI command sets. Many devices in other Linux device subsystems
  * utilize SCSI command sets either natively or via emulation (e.g. a
- * parallel ATA disk in a USB enclosure).
+ * SATA disk in a USB enclosure).
  */
 
 #include <stdio.h>
@@ -254,7 +254,7 @@ int sg_get_sense_str(const char * leadin, const uint8_t * sense_buffer,
 /* Decode descriptor format sense descriptors (assumes sense buffer is
  * in descriptor format). 'leadin' is string prepended to each line written
  * to 'b', NULL treated as "". Returns the number of bytes written to 'b'
- * excluding the trailing '\0'. */
+ * excluding the trailing '\0'. If problem, returns 0. */
 int sg_get_sense_descriptors_str(const char * leadin,
                                  const uint8_t * sense_buffer,
                                  int sb_len, int blen, char * b);
@@ -391,7 +391,6 @@ bool sg_exit2str(int exit_status, bool longer, int b_len, char * b);
 /* Utilities can use these exit status values for syntax errors and
  * file (device node) problems (e.g. not found or permissions). */
 #define SG_LIB_SYNTAX_ERROR 1   /* command line syntax problem */
-#define SG_LIB_FILE_ERROR 15    /* device or other file problem */
 
 /* The sg_err_category_sense() function returns one of the following.
  * These may be used as exit status values (from a process). Notice that
@@ -417,10 +416,13 @@ bool sg_exit2str(int exit_status, bool longer, int b_len, char * b);
                                 /*       [sk,asc,ascq: 0xb,! 0x10,*] */
 #define SG_LIB_CAT_MISCOMPARE 14 /* sense key, probably verify */
                                 /*       [sk,asc,ascq: 0xe,*,*] */
+#define SG_LIB_FILE_ERROR 15    /* device or other file problem */
 #define SG_LIB_CAT_NO_SENSE 20  /* sense data with key of "no sense" */
                                 /*       [sk,asc,ascq: 0x0,*,*] */
 #define SG_LIB_CAT_RECOVERED 21 /* Successful command after recovered err */
                                 /*       [sk,asc,ascq: 0x1,*,*] */
+#define SG_LIB_LBA_OUT_OF_RANGE 22 /* Illegal request, LBA Out Of Range */
+                                   /*    [sk,asc,ascq: 0x5,0x21,0x0] */
 #define SG_LIB_CAT_RES_CONFLICT SAM_STAT_RESERVATION_CONFLICT
                                 /* 24: this is a SCSI status, not sense. */
                                 /* It indicates reservation by another */
@@ -431,19 +433,25 @@ bool sg_exit2str(int exit_status, bool longer, int b_len, char * b);
 #define SG_LIB_CAT_TS_FULL    27 /* SCSI status, not sense. Wait then retry */
 #define SG_LIB_CAT_ACA_ACTIVE 28 /* SCSI status; ACA seldom used */
 #define SG_LIB_CAT_TASK_ABORTED 29 /* SCSI status, this command aborted by? */
+#define SG_LIB_CONTRADICT 31    /* error involving two or more cl options */
+#define SG_LIB_LOGIC_ERROR 32   /* unexpected situation in code */
 #define SG_LIB_CAT_PROTECTION 40 /* subset of aborted command (for PI, DIF) */
                                 /*       [sk,asc,ascq: 0xb,0x10,*] */
+/* 47: flock error in ddpt */
 #define SG_LIB_NVME_STATUS 48   /* NVMe Status Field (SF) other than 0 */
 #define SG_LIB_WILD_RESID 49    /* Residual value for data-in transfer of a */
                                 /* SCSI command is nonsensical */
 #define SG_LIB_OS_BASE_ERR 50   /* in Linux: values found in: */
                                 /* include/uapi/asm-generic/errno-base.h */
                                 /* Example: ENOMEM reported as 62 (=50+12) */
+                                /* if errno > 46 then use this value */
+/* 51-->96 set aside for Unix errno values shifted by SG_LIB_OS_BASE_ERR */
 #define SG_LIB_CAT_MALFORMED 97 /* Response to SCSI command malformed */
 #define SG_LIB_CAT_SENSE 98     /* Something else is in the sense buffer */
 #define SG_LIB_CAT_OTHER 99     /* Some other error/warning has occurred */
                                 /* (e.g. a transport or driver error) */
-#define SG_LIB_UNUSED_ABOVE 99  /* Put extra errors in holes below this */
+/* 100 to 120 (inclusive) used by ddpt */
+#define SG_LIB_UNUSED_ABOVE 120  /* Put extra errors in holes below this */
 
 /* Returns a SG_LIB_CAT_* value. If cannot decode sense_buffer or a less
  * common sense key then return SG_LIB_CAT_SENSE .*/
@@ -457,10 +465,10 @@ int sg_err_category_sense(const uint8_t * sense_buffer, int sb_len);
 #define SG_LIB_CAT_MEDIUM_HARD_WITH_INFO 18 /* medium or hardware error */
                                 /* sense key plus 'info' field: */
                                 /*       [sk,asc,ascq: 0x3/0x4,*,*] */
+#define SG_LIB_CAT_TIMEOUT 33   /* SCSI command timeout */
 #define SG_LIB_CAT_PROTECTION_WITH_INFO 41 /* aborted command sense key, */
                                 /* protection plus 'info' field: */
                                 /*  [sk,asc,ascq: 0xb,0x10,*] */
-#define SG_LIB_CAT_TIMEOUT 33
 
 /* Yield string associated with sense category. Returns 'buff' (or pointer
  * to "Bad sense category" if 'buff' is NULL). If sense_cat unknown then
@@ -606,10 +614,26 @@ uint8_t * sg_memalign(uint32_t num_bytes, uint32_t align_to,
 /* Returns OS page size in bytes. If uncertain returns 4096. */
 uint32_t sg_get_page_size(void);
 
-/* If byte_count is 0 or less then the OS page size is used. Returns true
- * if the remainder of ((unsigned)pointer % byte_count) is 0, else returns
- * false. */
+/* If byte_count is 0 or less then the OS page size is used as denominator.
+ * Returns true  if the remainder of ((unsigned)pointer % byte_count) is 0,
+ * else returns false. */
 bool sg_is_aligned(const void * pointer, int byte_count);
+
+/* Does similar job to sg_get_unaligned_be*() but this function starts at
+ * a given start_bit (i.e. within byte, so 7 is MSbit of byte and 0 is LSbit)
+ * offset. Maximum number of num_bits is 64. For example, these two
+ * invocations are equivalent (and should yield the same result);
+ *       sg_get_big_endian(from_bp, 7, 16)
+ *       sg_get_unaligned_be16(from_bp)  */
+uint64_t sg_get_big_endian(const uint8_t * from_bp,
+                           int start_bit /* 0 to 7 */,
+                           int num_bits /* 1 to 64 */);
+
+/* Does similar job to sg_put_unaligned_be*() but this function starts at
+ * a given start_bit offset. Maximum number of num_bits is 64. Preserves
+ * residual bits in partially written bytes. start_bit 7 is MSb. */
+void sg_set_big_endian(uint64_t val, uint8_t * to, int start_bit /* 0 to 7 */,
+                       int num_bits /* 1 to 64 */);
 
 /* If os_err_num is within bounds then the returned value is 'os_err_num +
  * SG_LIB_OS_BASE_ERR' otherwise SG_LIB_OS_BASE_ERR is returned. If
