@@ -1,4 +1,4 @@
-AC_INIT(sg3_utils_lib, 1.02, dgilbert@interlog.com)
+AC_INIT(sg3_utils_lib, 1.03, dgilbert@interlog.com)
 
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AM_MAINTAINER_MODE
@@ -24,6 +24,7 @@ AC_CHECK_FUNCS(getopt_long,
 	       GETOPT_O_FILES='getopt_long.o')
 AC_CHECK_FUNCS(posix_fadvise)
 AC_CHECK_FUNCS(posix_memalign)
+AC_CHECK_FUNCS(gettimeofday)
 AC_CHECK_FUNCS(sysconf)
 AC_CHECK_FUNCS(lseek64)
 SAVED_LIBS=$LIBS
@@ -35,6 +36,13 @@ AC_CHECK_FUNCS([pthread_cancel pthread_kill])
 LIBS=$SAVED_LIBS
 AC_SUBST(PTHREAD_LIB, [$pthread_lib])
 
+SAVED_LIBS=$LIBS
+AC_SEARCH_LIBS([clock_gettime], [rt])
+rt_lib=${LIBS%${SAVED_LIBS}}
+AC_CHECK_FUNCS(clock_gettime)
+LIBS=$SAVED_LIBS
+AC_SUBST(RT_LIB, [$rt_lib])
+
 AC_SUBST(GETOPT_O_FILES)
 
 AC_CANONICAL_HOST
@@ -42,7 +50,7 @@ AC_CANONICAL_HOST
 AC_DEFINE_UNQUOTED(SG_LIB_BUILD_HOST, "${host}", [sg3_utils_lib Build Host])
 
 check_for_linux_nvme_headers() {
-	AC_CHECK_HEADERS([linux/nvme_ioctl.h], [AC_DEFINE(HAVE_NVME, 1, [Found NVMe])], [], [])
+	AC_CHECK_HEADERS([linux/nvme_ioctl.h], [AC_DEFINE_UNQUOTED(HAVE_NVME, 1, [Found NVMe])], [], [])
 	AC_CHECK_HEADERS([linux/types.h linux/bsg.h linux/kdev_t.h], [], [],
 		     [[#ifdef HAVE_LINUX_TYPES_H
 		     # include <linux/types.h>
@@ -65,10 +73,15 @@ case "${host}" in
 		AC_DEFINE_UNQUOTED(SG_LIB_OSF1, 1, [sg3_utils_lib on Tru64 UNIX]);;
         *-*-cygwin*)
 		AC_DEFINE_UNQUOTED(SG_LIB_WIN32, 1, [sg3_utils_lib on Win32])
+		# AC_CHECK_HEADERS([nvme.h], [AC_DEFINE_UNQUOTED(HAVE_NVME, 1, [Found NVMe])], [], [])
+		AC_DEFINE_UNQUOTED(HAVE_NVME, 1, [Found NVMe])
                 CFLAGS="$CFLAGS -Wno-char-subscripts";;
         *-*-mingw*)
 		AC_DEFINE_UNQUOTED(SG_LIB_WIN32, 1, [sg3_utils_lib on Win32])
-		AC_DEFINE_UNQUOTED(SG_LIB_MINGW, 1, [also MinGW environment]);;
+		AC_DEFINE_UNQUOTED(SG_LIB_MINGW, 1, [also MinGW environment])
+		# AC_CHECK_HEADERS([nvme.h], [AC_DEFINE_UNQUOTED(HAVE_NVME, 1, [Found NVMe])], [], [])
+		AC_DEFINE_UNQUOTED(HAVE_NVME, 1, [Found NVMe])
+		CFLAGS="$CFLAGS -D__USE_MINGW_ANSI_STDIO";;
         *-*-linux-gnu* | *-*-linux* | *)
                 AC_DEFINE_UNQUOTED(SG_LIB_LINUX, 1, [sg3_utils_lib on linux])
                 check_for_linux_nvme_headers;;
@@ -82,6 +95,15 @@ AM_CONDITIONAL(OS_SOLARIS, [echo $host_os | grep '^solaris' > /dev/null])
 AM_CONDITIONAL(OS_WIN32_MINGW, [echo $host_os | grep '^mingw' > /dev/null])
 AM_CONDITIONAL(OS_WIN32_CYGWIN, [echo $host_os | grep '^cygwin' > /dev/null])
 AM_CONDITIONAL(OS_ANDROID, [echo $host_os | grep 'android' > /dev/null])
+
+AC_ARG_ENABLE([debug],
+             [  --enable-debug    Turn on debugging],
+             [case "${enableval}" in
+                 yes) debug=true ;;
+                 no)  debug=false ;;
+                 *) AC_MSG_ERROR([bad value ${enableval} for --enable-debug]) ;;
+              esac],[debug=false])
+AM_CONDITIONAL([DEBUG], [test x$debug = xtrue])
 
 AC_ARG_ENABLE([linuxbsg],
   AC_HELP_STRING([--disable-linuxbsg], [option ignored, this is placeholder]),

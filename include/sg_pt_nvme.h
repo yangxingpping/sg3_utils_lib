@@ -114,7 +114,7 @@ __packed;
 #endif
 
 struct sg_sntl_dev_state_t {
-    uint8_t descriptor_sense;
+    uint8_t scsi_dsense;
     uint8_t enclosure_override; /* ENC_OV in sdparm */
     uint8_t pdt;        /* 6 bit value in INQUIRY response */
     uint8_t enc_serv;   /* single bit in INQUIRY response */
@@ -177,6 +177,9 @@ struct sg_opcode_info_t {
 /* Valid namespace IDs (nsid_s) range from 1 to 0xfffffffe, leaving: */
 #define SG_NVME_BROADCAST_NSID 0xffffffff       /* all namespaces */
 #define SG_NVME_CTL_NSID 0x0            /* the "controller's" namespace */
+
+/* Vendor specific (sg3_utils) VPD pages */
+#define SG_NVME_VPD_NICR 0xde   /* NVME Identify controller response */
 
 extern struct sg_opcode_info_t sg_opcode_info_arr[];
 
