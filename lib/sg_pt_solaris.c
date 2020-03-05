@@ -1,11 +1,13 @@
 /*
- * Copyright (c) 2007-2018 Douglas Gilbert.
+ * Copyright (c) 2007-2019 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
-/* sg_pt_solaris version 1.09 20180202 */
+/* sg_pt_solaris version 1.11 20190113 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -98,7 +100,7 @@ construct_scsi_pt_obj_with_fd(int dev_fd, int verbose)
     ptp = (struct sg_pt_solaris_scsi *)
           calloc(1, sizeof(struct sg_pt_solaris_scsi));
     if (ptp) {
-        ptp->dev_fd = (dev_fd < 0) ? -1 : devfd;
+        ptp->dev_fd = (dev_fd < 0) ? -1 : dev_fd;
         ptp->is_nvme = false;
         ptp->uscsi.uscsi_timeout = DEF_TIMEOUT;
         ptp->uscsi.uscsi_flags = USCSI_READ | USCSI_ISOLATE | USCSI_RQENABLE;
@@ -112,16 +114,7 @@ construct_scsi_pt_obj_with_fd(int dev_fd, int verbose)
 struct sg_pt_base *
 construct_scsi_pt_obj()
 {
-    struct sg_pt_solaris_scsi * ptp;
-
-    ptp = (struct sg_pt_solaris_scsi *)
-          calloc(1, sizeof(struct sg_pt_solaris_scsi));
-    if (ptp) {
-        ptp->uscsi.uscsi_timeout = DEF_TIMEOUT;
-        ptp->uscsi.uscsi_flags = USCSI_READ | USCSI_ISOLATE | USCSI_RQENABLE;
-        ptp->uscsi.uscsi_timeout = DEF_TIMEOUT;
-    }
-    return (struct sg_pt_base *)ptp;
+    return construct_scsi_pt_obj_with_fd(-1, 0);
 }
 
 void
@@ -322,12 +315,64 @@ get_scsi_pt_result_category(const struct sg_pt_base * vp)
         return SCSI_PT_RESULT_GOOD;
 }
 
+uint32_t
+get_pt_result(const struct sg_pt_base * vp)
+{
+    const struct sg_pt_solaris_scsi * ptp = &vp->impl;
+
+    return (uint32_t)ptp->uscsi.uscsi_status;
+}
+
 int
 get_scsi_pt_resid(const struct sg_pt_base * vp)
 {
     const struct sg_pt_solaris_scsi * ptp = &vp->impl;
 
     return ptp->uscsi.uscsi_resid;
+}
+
+void
+get_pt_req_lengths(const struct sg_pt_base * vp, int * req_dinp,
+                   int * req_doutp)
+{
+    const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
+    int dxfer_len = ptp->uscsi.uscsi_buflen
+    int flags = ptp->uscsi.uscsi_flags;
+
+    if (req_dinp) {
+        if ((dxfer_len > 0) && (USCSI_READ & flags))
+            *req_dinp = dxfer_len;
+        else
+            *req_dinp = 0;
+    }
+    if (req_doutp) {
+        if ((dxfer_len > 0) && (USCSI_WRITE & flags))
+            *req_doutp = dxfer_len;
+        else
+            *req_doutp = 0;
+    }
+}
+
+void
+get_pt_actual_lengths(const struct sg_pt_base * vp, int * act_dinp,
+                      int * act_doutp)
+{
+    const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
+    int dxfer_len = ptp->uscsi.uscsi_buflen
+    int flags = ptp->uscsi.uscsi_flags;
+
+    if (act_dinp) {
+        if ((dxfer_len > 0) && (USCSI_READ & flags))
+            *act_dinp = dxfer_len - ptp->uscsi.uscsi_resid;
+        else
+            *act_dinp = 0;
+    }
+    if (act_doutp) {
+        if ((dxfer_len > 0) && (USCSI_WRITE & flags))
+            *act_doutp = dxfer_len - ptp->uscsi.uscsi_resid;
+        else
+            *act_doutp = 0;
+    }
 }
 
 int
@@ -351,6 +396,14 @@ get_scsi_pt_sense_len(const struct sg_pt_base * vp)
     return 0;
 }
 
+uint8_t *
+get_scsi_pt_sense_buf(const struct sg_pt_base * vp)
+{
+    const struct sg_pt_solaris_scsi * ptp = &vp->impl;
+
+    return (uint8_t *)ptp->uscsi.uscsi_rqbuf;
+}
+
 int
 get_scsi_pt_duration_ms(const struct sg_pt_base * vp)
 {
@@ -358,6 +411,14 @@ get_scsi_pt_duration_ms(const struct sg_pt_base * vp)
 
     vp = vp;            /* ignore and suppress warning */
     return -1;          /* not available */
+}
+
+/* If not available return 0 otherwise return number of nanoseconds that the
+ * lower layers (and hardware) took to execute the command just completed. */
+uint64_t 
+get_pt_duration_ns(const struct sg_pt_base * vp __attribute__ ((unused)))
+{
+    return 0;
 }
 
 int

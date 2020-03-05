@@ -1,11 +1,13 @@
 /*
- * Copyright (c) 2005-2018 Douglas Gilbert.
+ * Copyright (c) 2005-2019 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
-/* sg_pt_freebsd version 1.32 20180627 */
+/* sg_pt_freebsd version 1.35 20190210 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,7 +88,7 @@ struct sg_pt_freebsd_scsi {
     int sense_len;
     uint8_t * dxferp;
     int dxfer_len;
-    int dxfer_dir;
+    int dxfer_dir;      /* CAM_DIR_NONE, _IN, _OUT and _BOTH */
     uint8_t * dxferip;
     uint8_t * dxferop;
     uint8_t * mdxferp;
@@ -542,7 +544,10 @@ set_scsi_pt_data_in(struct sg_pt_base * vp, uint8_t * dxferp,
     if (dxfer_len > 0) {
         ptp->dxferp = dxferp;
         ptp->dxfer_len = dxfer_len;
-        ptp->dxfer_dir = CAM_DIR_IN;
+        if (ptp->dxfer_dir == CAM_DIR_OUT)
+            ptp->dxfer_dir = CAM_DIR_BOTH;
+        else
+            ptp->dxfer_dir = CAM_DIR_IN;
     }
 }
 
@@ -560,7 +565,10 @@ set_scsi_pt_data_out(struct sg_pt_base * vp, const uint8_t * dxferp,
     if (dxfer_len > 0) {
         ptp->dxferp = (uint8_t *)dxferp;
         ptp->dxfer_len = dxfer_len;
-        ptp->dxfer_dir = CAM_DIR_OUT;
+        if (ptp->dxfer_dir == CAM_DIR_IN)
+            ptp->dxfer_dir = CAM_DIR_BOTH;
+        else
+            ptp->dxfer_dir = CAM_DIR_OUT;
     }
 }
 
@@ -767,7 +775,49 @@ get_scsi_pt_resid(const struct sg_pt_base * vp)
 {
     const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
 
-    return ptp->nvme_direct ? 0 : ptp->resid;
+    return ((NULL == ptp) || ptp->nvme_direct) ? 0 : ptp->resid;
+}
+
+void
+get_pt_req_lengths(const struct sg_pt_base * vp, int * req_dinp,
+                   int * req_doutp)
+{
+    const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
+    bool bidi = (ptp->dxfer_dir == CAM_DIR_BOTH);
+
+    if (req_dinp) {
+        if (ptp->dxfer_ilen > 0)
+            *req_dinp = ptp->dxfer_ilen;
+        else
+            *req_dinp = 0;
+    }
+    if (req_doutp) {
+        if ((!bidi) && (ptp->dxfer_olen > 0))
+            *req_doutp = ptp->dxfer_olen;
+        else
+            *req_doutp = 0;
+    }
+}
+
+void
+get_pt_actual_lengths(const struct sg_pt_base * vp, int * act_dinp,
+                      int * act_doutp)
+{
+    const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
+    bool bidi = (ptp->dxfer_dir == CAM_DIR_BOTH);
+
+    if (act_dinp) {
+        if (ptp->dxfer_ilen > 0)
+            *act_dinp = ptp->dxfer_ilen - ptp->resid;
+        else
+            *act_dinp = 0;
+    }
+    if (act_doutp) {
+        if ((!bidi) && (ptp->dxfer_olen > 0))
+            *act_doutp = ptp->dxfer_olen - ptp->resid;
+        else
+            *act_doutp = 0;
+    }
 }
 
 /* Returns SCSI status value (from device that received the command). If an
@@ -823,6 +873,14 @@ get_scsi_pt_sense_len(const struct sg_pt_base * vp)
         return ptp->sense_len - ptp->sense_resid;
 }
 
+uint8_t *
+get_scsi_pt_sense_buf(const struct sg_pt_base * vp)
+{
+    const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
+
+    return ptp->sense;
+}
+
 /* Not impemented so return -1 . */
 int
 get_scsi_pt_duration_ms(const struct sg_pt_base * vp __attribute__ ((unused)))
@@ -830,6 +888,14 @@ get_scsi_pt_duration_ms(const struct sg_pt_base * vp __attribute__ ((unused)))
     // const struct sg_pt_freebsd_scsi * ptp = &vp->impl;
 
     return -1;
+}
+
+/* If not available return 0 otherwise return number of nanoseconds that the
+ * lower layers (and hardware) took to execute the command just completed. */
+uint64_t
+get_pt_duration_ns(const struct sg_pt_base * vp __attribute__ ((unused)))
+{
+    return 0;
 }
 
 int
@@ -1115,7 +1181,8 @@ nvme_pt_low(struct freebsd_dev_channel *fdc_p, void * dxferp, uint32_t len,
     err = ioctl(fdc_p->dev_fd, NVME_PASSTHROUGH_CMD, npcp);
     if (err < 0)
         return -errno;  /* Assume Unix error in normal place */
-    sct_sc = ((npcp->cpl.status.sct << 8) | npcp->cpl.status.sc);
+    sct_sc = (NVME_STATUS_GET_SCT(npcp->cpl.status) << 8) |
+             NVME_STATUS_GET_SC(npcp->cpl.status);
     fdc_p->nvme_result = npcp->cpl.cdw0;
     sg_put_unaligned_le32(npcp->cpl.cdw0,
                           fdc_p->cq_dw0_3 + SG_NVME_PT_CQ_RESULT);
@@ -1127,7 +1194,7 @@ nvme_pt_low(struct freebsd_dev_channel *fdc_p, void * dxferp, uint32_t len,
                           fdc_p->cq_dw0_3 + SG_NVME_PT_CQ_STATUS_P);
     if (sct_sc && (vb > 1)) {
         char nam[64];
- 
+
         sg_get_nvme_opcode_name(opcode, true, sizeof(nam), nam);
         pr2ws("%s: %s [0x%x], status: %s\n", __func__, nam, opcode,
               sg_get_nvme_cmd_status_str(sct_sc, sizeof(b), b));
@@ -1909,7 +1976,7 @@ sntl_rep_opcodes(struct sg_pt_freebsd_scsi * ptp, const uint8_t * cdbp,
     case 0: /* all commands */
         count = 0;
         bump = rctd ? 20 : 8;
-        for (offset = 4, oip = sg_opcode_info_arr;
+        for (offset = 4, oip = sg_get_opcode_translation();
              (oip->flags != 0xffff) && (offset < a_len); ++oip) {
             if (F_INV_OP & oip->flags)
                 continue;
@@ -1930,7 +1997,7 @@ sntl_rep_opcodes(struct sg_pt_freebsd_scsi * ptp, const uint8_t * cdbp,
     case 1: /* one command: opcode only */
     case 2: /* one command: opcode plus service action */
     case 3: /* one command: if sa==0 then opcode only else opcode+sa */
-        for (oip = sg_opcode_info_arr; oip->flags != 0xffff; ++oip) {
+        for (oip = sg_get_opcode_translation(); oip->flags != 0xffff; ++oip) {
             if ((req_opcode == oip->opcode) && (req_sa == oip->sa))
                 break;
         }

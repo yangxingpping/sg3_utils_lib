@@ -1,8 +1,10 @@
 /*
- * Copyright (c) 2005-2018 Douglas Gilbert.
+ * Copyright (c) 2005-2019 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <fcntl.h>
@@ -28,6 +30,7 @@
 #include "sg_lib.h"
 #include "sg_pr2serr.h"
 
+/* Version 2.00 20190113 */
 
 #define OSF1_MAXDEV 64
 
@@ -65,7 +68,6 @@ struct sg_pt_osf1_scsi {
 struct sg_pt_base {
     struct sg_pt_osf1_scsi impl;
 };
-
 
 
 /* Returns >= 0 if successful. If error in Unix returns negated errno. */
@@ -460,6 +462,49 @@ get_scsi_pt_resid(const struct sg_pt_base * vp)
     return ptp->resid;
 }
 
+void
+get_pt_req_lengths(const struct sg_pt_base * vp, int * req_dinp,
+                   int * req_doutp)
+{
+    const struct sg_pt_osf1_scsi * ptp = &vp->impl;
+    bool bidi = (ptp->dxfer_dir == CAM_DIR_BOTH);
+
+    if (req_dinp) {
+        if (ptp->dxfer_len > 0)
+            *req_dinp = ptp->dxfer_len;
+        else
+            *req_dinp = 0;
+    }
+    if (req_doutp) {
+        if ((!bidi) && (ptp->dxfer_len > 0))
+            *req_doutp = ptp->dxfer_len;
+        else
+            *req_doutp = 0;
+    }
+}
+
+void
+get_pt_actual_lengths(const struct sg_pt_base * vp, int * act_dinp,
+                      int * act_doutp)
+{
+    const struct sg_pt_osf1_scsi * ptp = &vp->impl;
+    bool bidi = (ptp->dxfer_dir == CAM_DIR_BOTH);
+
+    if (act_dinp) {
+        if (ptp->dxfer_len > 0)
+            *act_dinp = ptp->dxfer_len - ptp->resid;
+        else
+            *act_dinp = 0;
+    }
+    if (act_doutp) {
+        if ((!bidi) && (ptp->dxfer_len > 0))
+            *act_doutp = ptp->dxfer_len - ptp->resid;
+        else
+            *act_doutp = 0;
+    }
+}
+
+
 int
 get_scsi_pt_status_response(const struct sg_pt_base * vp)
 {
@@ -478,12 +523,28 @@ get_scsi_pt_sense_len(const struct sg_pt_base * vp)
     return (len > 0) ? len : 0;
 }
 
+uint8_t *
+get_scsi_pt_sense_buf(const struct sg_pt_base * vp)
+{
+    const struct sg_pt_osf1_scsi * ptp = &vp->impl;
+
+    return ptp->sense;
+}
+
 int
 get_scsi_pt_duration_ms(const struct sg_pt_base * vp)
 {
     // const struct sg_pt_osf1_scsi * ptp = &vp->impl;
 
     return -1;
+}
+
+/* If not available return 0 otherwise return number of nanoseconds that the
+ * lower layers (and hardware) took to execute the command just completed. */
+uint64_t 
+get_pt_duration_ns(const struct sg_pt_base * vp __attribute__ ((unused)))
+{
+    return 0;
 }
 
 int

@@ -1,8 +1,10 @@
 /*
- * Copyright (c) 1999-2018 Douglas Gilbert.
+ * Copyright (c) 1999-2020 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 /* NOTICE:
@@ -28,15 +30,20 @@
  */
 
 #define _POSIX_C_SOURCE 200809L         /* for posix_memalign() */
-#define __STDC_FORMAT_MACROS 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
+#define __STDC_FORMAT_MACROS 1
 #include <inttypes.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -150,25 +157,78 @@ sg_set_warnings_strm(FILE * warnings_strm)
     sg_warnings_strm = warnings_strm;
 }
 
+/* Take care to minimize printf() parsing delays when printing commands */
+static char bin2hexascii[] = {'0', '1', '2', '3', '4', '5', '6', '7',
+                              '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
+
+/* Given a SCSI command pointed to by cdbp of sz bytes this function forms
+ * a SCSI command in ASCII surrounded by square brackets in 'b'. 'b' is at
+ * least blen bytes long. If cmd_name is true then the command is prefixed
+ * by its SCSI command name (e.g.  "VERIFY(10) [2f ...]". The command is
+ * shown as spaced separated pairs of hexadecimal digits (i.e. 0-9, a-f).
+ * Each pair represents byte. The leftmost pair of digits is cdbp[0] . If
+ * sz <= 0 then this function tries to guess the length of the command. */
+char *
+sg_get_command_str(const uint8_t * cdbp, int sz, bool cmd_name, int blen,
+                   char * b)
+{
+    int k, j, jj;
+
+    if ((cdbp == NULL) || (b == NULL) || (blen < 1))
+        return b;
+    if (cmd_name && (blen > 16)) {
+        sg_get_command_name(cdbp, 0, blen, b);
+        j = (int)strlen(b);
+        if (j < (blen - 1))
+            b[j++] = ' ';
+    } else
+        j = 0;
+    if (j >= blen)
+        goto fini;
+    b[j++] = '[';
+    if (j >= blen)
+        goto fini;
+    if (sz <= 0) {
+        if (SG_VARIABLE_LENGTH_CMD == cdbp[0])
+            sz = cdbp[7] + 8;
+        else
+            sz = sg_get_command_size(cdbp[0]);
+    }
+    jj = j;
+    for (k = 0; (k < sz) && (j < (blen - 3)); ++k, j += 3, ++cdbp) {
+        b[j] = bin2hexascii[(*cdbp >> 4) & 0xf];
+        b[j + 1] = bin2hexascii[*cdbp & 0xf];
+        b[j + 2] = ' ';
+    }
+    if (j > jj)
+        --j;    /* don't want trailing space before ']' */
+    if (j >= blen)
+        goto fini;
+    b[j++] = ']';
+fini:
+    if (j >= blen)
+        b[blen - 1] = '\0';     /* truncated string */
+    else
+        b[j] = '\0';
+    return b;
+}
+
 #define CMD_NAME_LEN 128
 
 void
-sg_print_command(const uint8_t * command)
+sg_print_command_len(const uint8_t * cdbp, int sz)
 {
-    int k, sz;
     char buff[CMD_NAME_LEN];
 
-    sg_get_command_name(command, 0, CMD_NAME_LEN, buff);
-    buff[CMD_NAME_LEN - 1] = '\0';
+    sg_get_command_str(cdbp, sz, true, sizeof(buff), buff);
+    pr2ws("%s\n", buff);
+}
 
-    pr2ws("%s [", buff);
-    if (SG_VARIABLE_LENGTH_CMD == command[0])
-        sz = command[7] + 8;
-    else
-        sz = sg_get_command_size(command[0]);
-    for (k = 0; k < sz; ++k)
-        pr2ws("%02x ", command[k]);
-    pr2ws("]\n");
+void
+sg_print_command(const uint8_t * cdbp)
+{
+    sg_print_command_len(cdbp, 0);
 }
 
 /* SCSI Status values */
@@ -543,7 +603,7 @@ sg_decode_transportid_str(const char * lip, uint8_t * bp, int bplen,
     }
     if (NULL == lip)
         lip = "";
-    bump = TRANSPORT_ID_MIN_LEN; /* should be overwritten in all loop paths */
+    /* bump = TRANSPORT_ID_MIN_LEN; // some old compilers insisted on this */
     for (k = 0, n = 0; bplen > 0; ++k, bp += bump, bplen -= bump) {
         if ((k > 0) && only_one)
             break;
@@ -752,6 +812,57 @@ sg_get_desig_type_str(int val)
         return NULL;
 }
 
+/* Expects a T10 UUID designator (as found in the Device Identification VPD
+ * page) pointed to by 'dp'. To not produce an error string in 'b', c_set
+ * should be 1 (binary) and dlen should be 18. Currently T10 only supports
+ * locally assigned UUIDs. Writes output to string 'b' of no more than blen
+ * bytes and returns the number of bytes actually written to 'b' but doesn't
+ * count the trailing null character it always appends (if blen > 0). 'lip'
+ * is lead-in string (on each line) than may be NULL. skip_prefix avoids
+ * outputting: '   Locally assigned UUID: ' before the UUID. */
+int
+sg_t10_uuid_desig2str(const uint8_t *dp, int dlen, int c_set, bool do_long,
+                      bool skip_prefix, const char * lip /* lead-in */,
+                      int blen, char * b)
+{
+    int m;
+    int n = 0;
+
+    if (NULL == lip)
+        lip = "";
+    if (1 != c_set) {
+        n += sg_scnpr(b + n, blen - n, "%s      << expected binary "
+                      "code_set >>\n", lip);
+        n += hex2str(dp, dlen, lip, 0, blen - n, b + n);
+        return n;
+    }
+    if ((1 != ((dp[0] >> 4) & 0xf)) || (18 != dlen)) {
+        n += sg_scnpr(b + n, blen - n, "%s      << expected locally "
+                      "assigned UUID, 16 bytes long >>\n", lip);
+        n += hex2str(dp, dlen, lip, 0, blen - n, b + n);
+        return n;
+    }
+    if (skip_prefix) {
+        if (strlen(lip) > 0)
+            n += sg_scnpr(b + n, blen - n, "%s", lip);
+    } else
+        n += sg_scnpr(b + n, blen - n, "%s      Locally assigned UUID: ",
+                      lip);
+    for (m = 0; m < 16; ++m) {
+        if ((4 == m) || (6 == m) || (8 == m) || (10 == m))
+            n += sg_scnpr(b + n, blen - n, "-");
+        n += sg_scnpr(b + n, blen - n, "%02x", (my_uint)dp[2 + m]);
+    }
+    n += sg_scnpr(b + n, blen - n, "\n");
+    if (do_long) {
+        n += sg_scnpr(b + n, blen - n, "%s      [0x", lip);
+        for (m = 0; m < 16; ++m)
+            n += sg_scnpr(b + n, blen - n, "%02x", (my_uint)dp[2 + m]);
+        n += sg_scnpr(b + n, blen - n, "]\n");
+    }
+    return n;
+}
+
 int
 sg_get_designation_descriptor_str(const char * lip, const uint8_t * ddp,
                                   int dd_len, bool print_assoc, bool do_long,
@@ -855,7 +966,7 @@ sg_get_designation_descriptor_str(const char * lip, const uint8_t * ddp,
             break;
         }
         ci_off = 0;
-        if (16 == dlen) {
+        if (16 == dlen) {       /* first 8 bytes are 'Identifier Extension' */
             ci_off = 8;
             id_ext = sg_get_unaligned_be64(ip);
             n += sg_scnpr(b + n, blen - n, "%s      Identifier extension: 0x%"
@@ -1100,32 +1211,8 @@ sg_get_designation_descriptor_str(const char * lip, const uint8_t * ddp,
                           sg_get_trans_proto_str(p_id, sizeof(e), e), lip);
         break;
     case 0xa: /* UUID identifier */
-        if (1 != c_set) {
-            n += sg_scnpr(b + n, blen - n, "%s      << expected binary "
-                          "code_set >>\n", lip);
-            n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
-            break;
-        }
-        if ((1 != ((ip[0] >> 4) & 0xf)) || (18 != dlen)) {
-            n += sg_scnpr(b + n, blen - n, "%s      << expected locally "
-                          "assigned UUID, 16 bytes long >>\n", lip);
-            n += hex2str(ip, dlen, lip, 0, blen - n, b + n);
-            break;
-        }
-        n += sg_scnpr(b + n, blen - n, "%s      Locally assigned UUID: ",
-                      lip);
-        for (m = 0; m < 16; ++m) {
-            if ((4 == m) || (6 == m) || (8 == m) || (10 == m))
-                n += sg_scnpr(b + n, blen - n, "-");
-            n += sg_scnpr(b + n, blen - n, "%02x", (my_uint)ip[2 + m]);
-        }
-        n += sg_scnpr(b + n, blen - n, "\n");
-        if (do_long) {
-            n += sg_scnpr(b + n, blen - n, "%s      [0x", lip);
-            for (m = 0; m < 16; ++m)
-                n += sg_scnpr(b + n, blen - n, "%02x", (my_uint)ip[2 + m]);
-            n += sg_scnpr(b + n, blen - n, "]\n");
-        }
+        n += sg_t10_uuid_desig2str(ip, dlen, c_set, do_long, false, lip,
+                                   blen - n, b + n);
         break;
     default: /* reserved */
         n += sg_scnpr(b + n, blen - n, "%s      reserved designator=0x%x\n",
@@ -1332,7 +1419,10 @@ sg_get_sense_descriptors_str(const char * lip, const uint8_t * sbp,
         switch (descp[0]) {
         case 0:
             n += sg_scnpr(b + n, blen - n, "Information: ");
-            if ((add_d_len >= 10) && (0x80 & descp[2])) {
+            if (add_d_len >= 10) {
+                if (! (0x80 & descp[2]))
+                    n += sg_scnpr(b + n, blen - n, "Valid=0 (-> vendor "
+                                  "specific) ");
                 n += sg_scnpr(b + n, blen - n, "0x");
                 for (j = 0; j < 8; ++j)
                     n += sg_scnpr(b + n, blen - n, "%02x", descp[4 + j]);
@@ -1841,9 +1931,6 @@ sg_get_sense_str(const char * lip, const uint8_t * sbp, int sb_len,
             sg_scnpr(b + r, blen - r, "%s  lba=0x%x\n", lip,
                      sg_get_unaligned_be24(sbp + 1) & 0x1fffff);
         n += sg_scnpr(cbp + n, cblen - n, "%s\n", b);
-        len = sb_len;
-        if (len > 32)
-            len = 32;   /* trim in case there is a lot of rubbish */
     }
 check_raw:
     if (raw_sinfo) {
@@ -1880,7 +1967,7 @@ sg_print_sense(const char * leadin, const uint8_t * sbp, int sb_len,
     char *cp;
     uint8_t *free_cp;
 
-    cp = (char *)sg_memalign(pg_sz, pg_sz, &free_cp, 0);
+    cp = (char *)sg_memalign(pg_sz, pg_sz, &free_cp, false);
     if (NULL == cp)
         return;
     sg_get_sense_str(leadin, sbp, sb_len, raw_sinfo, pg_sz, cp);
@@ -1995,11 +2082,11 @@ sg_convert_errno(int os_err_num)
 
 static const char * const bad_sense_cat = "Bad sense category";
 
-/* Yield string associated with sense category. Returns 'buff' (or pointer
- * to "Bad sense category" if 'buff' is NULL). If sense_cat unknown then
- * yield "Sense category: <sense_cat)val>" string. The original 'sense
+/* Yield string associated with sense category. Returns 'b' (or pointer
+ * to "Bad sense category" if 'b' is NULL). If sense_cat unknown then
+ * yield "Sense category: <sense_cat_val>" string. The original 'sense
  * category' concept has been expanded to most detected errors and is
- * returned by these utilties as their exit status value (an (unsigned)
+ * returned by these utilities as their exit status value (an (unsigned)
  * 8 bit value where 0 means good (i.e. no errors)).  Uses sg_exit2str()
  * function. */
 const char *
@@ -2044,6 +2131,8 @@ sg_scsi_normalize_sense(const uint8_t * sbp, int sb_len,
                 sshp->ascq = sbp[3];
             if (sb_len > 7)
                 sshp->additional_length = sbp[7];
+            sshp->byte4 = sbp[4];       /* bit 7: SDAT_OVFL bit */
+            /* sbp[5] and sbp[6] reserved for descriptor format */
         } else {                              /* fixed format */
             if (sb_len > 2)
                 sshp->sense_key = (0xf & sbp[2]);
@@ -2053,6 +2142,11 @@ sg_scsi_normalize_sense(const uint8_t * sbp, int sb_len,
                     sshp->asc = sbp[12];
                 if (sb_len > 13)
                     sshp->ascq = sbp[13];
+            }
+            if (sb_len > 6) {   /* lower 3 bytes of INFO field */
+                sshp->byte4 = sbp[4];
+                sshp->byte5 = sbp[5];
+                sshp->byte6 = sbp[6];
             }
         }
     }
@@ -2118,20 +2212,17 @@ sg_get_command_size(uint8_t opcode)
     switch ((opcode >> 5) & 0x7) {
     case 0:
         return 6;
-    case 1: case 2: case 6: case 7:
-        return 10;
     case 3: case 5:
         return 12;
-        break;
     case 4:
         return 16;
-    default:
+    default:        /* 1, 2, 6, 7 */
         return 10;
     }
 }
 
 void
-sg_get_command_name(const uint8_t * cmdp, int peri_type, int buff_len,
+sg_get_command_name(const uint8_t * cdbp, int peri_type, int buff_len,
                     char * buff)
 {
     int service_action;
@@ -2142,13 +2233,13 @@ sg_get_command_name(const uint8_t * cmdp, int peri_type, int buff_len,
         buff[0] = '\0';
         return;
     }
-    if (NULL == cmdp) {
+    if (NULL == cdbp) {
         sg_scnpr(buff, buff_len, "%s", "<null> command pointer");
         return;
     }
-    service_action = (SG_VARIABLE_LENGTH_CMD == cmdp[0]) ?
-                     sg_get_unaligned_be16(cmdp + 8) : (cmdp[1] & 0x1f);
-    sg_get_opcode_sa_name(cmdp[0], service_action, peri_type, buff_len, buff);
+    service_action = (SG_VARIABLE_LENGTH_CMD == cdbp[0]) ?
+                     sg_get_unaligned_be16(cdbp + 8) : (cdbp[1] & 0x1f);
+    sg_get_opcode_sa_name(cdbp[0], service_action, peri_type, buff_len, buff);
 }
 
 struct op_code2sa_t {
@@ -2261,9 +2352,6 @@ sg_get_opcode_name(uint8_t cmd_byte0, int peri_type, int buff_len,
     case 6:
     case 7:
         sg_scnpr(buff, buff_len, "Vendor specific [0x%x]", (int)cmd_byte0);
-        break;
-    default:
-        sg_scnpr(buff, buff_len, "Opcode=0x%x", (int)cmd_byte0);
         break;
     }
 }
@@ -2580,6 +2668,7 @@ sg_nvme_status2scsi(uint16_t sct_sc, uint8_t * status_p, uint8_t * sk_p,
         return false;
     } else if (ind >= k)
         return false;
+
     mp = sg_lib_scsi_status_sense_arr + ind;
     if (status_p)
         *status_p = mp->t1;
@@ -3021,18 +3110,24 @@ dWordHex(const uint16_t* words, int num, int no_ascii, bool swapb)
         printf("%.76s\n", buff);
 }
 
-/* If the number in 'buf' can be decoded or the multiplier is unknown
+/* If the number in 'buf' can not be decoded or the multiplier is unknown
  * then -1 is returned. Accepts a hex prefix (0x or 0X) or a decimal
  * multiplier suffix (as per GNU's dd (since 2002: SI and IEC 60027-2)).
  * Main (SI) multipliers supported: K, M, G. Ignore leading spaces and
- * tabs; accept comma, hyphen, space, tab and hash as terminator. */
+ * tabs; accept comma, hyphen, space, tab and hash as terminator.
+ * Handles zero and positive values up to 2**31-1 .
+ * Experimental: left argument (must in with hexadecimal digit) added
+ * to, or multiplied, by right argument. No embedded spaces.
+ * Examples: '3+1k' (evaluates to 1027) and '0x34+1m'. */
 int
 sg_get_num(const char * buf)
 {
+    bool is_hex = false;
     int res, num, n, len;
     unsigned int unum;
     char * cp;
     const char * b;
+    const char * b2p;
     char c = 'c';
     char c2 = '\0';     /* keep static checker happy */
     char c3 = '\0';     /* keep static checker happy */
@@ -3059,24 +3154,35 @@ sg_get_num(const char * buf)
         b = lb;
     } else
         b = buf;
+
+    b2p = b;
     if (('0' == b[0]) && (('x' == b[1]) || ('X' == b[1]))) {
-        res = sscanf(b + 2, "%x", &unum);
+        res = sscanf(b + 2, "%x%c", &unum, &c);
         num = unum;
+        is_hex = true;
+        b2p = b + 2;
     } else if ('H' == toupper((int)b[len - 1])) {
         res = sscanf(b, "%x", &unum);
         num = unum;
     } else
         res = sscanf(b, "%d%c%c%c", &num, &c, &c2, &c3);
+
     if (res < 1)
-        return -1LL;
+        return -1;
     else if (1 == res)
         return num;
     else {
+        c = toupper((int)c);
+        if (is_hex) {
+            if (! ((c == '+') || (c == 'X')))
+                return -1;
+        }
         if (res > 2)
             c2 = toupper((int)c2);
         if (res > 3)
             c3 = toupper((int)c3);
-        switch (toupper((int)c)) {
+
+        switch (c) {
         case 'C':
             return num;
         case 'W':
@@ -3107,14 +3213,24 @@ sg_get_num(const char * buf)
             if (('I' == c2) && (4 == res) && ('B' == c3))
                 return num * 1073741824;
             return -1;
-        case 'X':
-            cp = (char *)strchr(b, 'x');
+        case 'X':       /* experimental: multiplication */
+            /* left argument must end with hexadecimal digit */
+            cp = (char *)strchr(b2p, 'x');
             if (NULL == cp)
-                cp = (char *)strchr(b, 'X');
+                cp = (char *)strchr(b2p, 'X');
             if (cp) {
                 n = sg_get_num(cp + 1);
                 if (-1 != n)
                     return num * n;
+            }
+            return -1;
+        case '+':       /* experimental: addition */
+            /* left argument must end with hexadecimal digit */
+            cp = (char *)strchr(b2p, '+');
+            if (cp) {
+                n = sg_get_num(cp + 1);
+                if (-1 != n)
+                    return num + n;
             }
             return -1;
         default:
@@ -3156,19 +3272,25 @@ sg_get_num_nomult(const char * buf)
         return -1;
 }
 
-/* If the number in 'buf' can be decoded or the multiplier is unknown
- * then -1LL is returned. Accepts a hex prefix (0x or 0X) or a decimal
- * multiplier suffix (as per GNU's dd (since 2002: SI and IEC 60027-2)).
- * Main (SI) multipliers supported: K, M, G, T, P. Ignore leading spaces
- * and tabs; accept comma, hyphen, space, tab and hash as terminator. */
+/* If the number in 'buf' can not be decoded or the multiplier is unknown
+ * then -1LL is returned. Accepts a hex prefix (0x or 0X), hex suffix
+ * (h or H), or a decimal multiplier suffix (as per GNU's dd (since 2002:
+ * SI and IEC 60027-2)).  Main (SI) multipliers supported: K, M, G, T, P
+ * and E. Ignore leading spaces and tabs; accept comma, hyphen, space, tab
+ * and hash as terminator. Handles zero and positive values up to 2**63-1 .
+ * Experimental: left argument (must in with hexadecimal digit) added
+ * to, or multiplied by right argument. No embedded spaces.
+ * Examples: '3+1k' (evaluates to 1027) and '0x34+1m'. */
 int64_t
 sg_get_llnum(const char * buf)
 {
+    bool is_hex = false;
     int res, len, n;
     int64_t num, ll;
     uint64_t unum;
     char * cp;
     const char * b;
+    const char * b2p;
     char c = 'c';
     char c2 = '\0';     /* keep static checker happy */
     char c3 = '\0';     /* keep static checker happy */
@@ -3195,63 +3317,74 @@ sg_get_llnum(const char * buf)
         b = lb;
     } else
         b = buf;
+
+    b2p = b;
     if (('0' == b[0]) && (('x' == b[1]) || ('X' == b[1]))) {
-        res = sscanf(b + 2, "%" SCNx64 , &unum);
+        res = sscanf(b + 2, "%" SCNx64 "%c", &unum, &c);
         num = unum;
+        is_hex = true;
+        b2p = b + 2;
     } else if ('H' == toupper((int)b[len - 1])) {
         res = sscanf(b, "%" SCNx64 , &unum);
         num = unum;
     } else
         res = sscanf(b, "%" SCNd64 "%c%c%c", &num, &c, &c2, &c3);
+
     if (res < 1)
         return -1LL;
     else if (1 == res)
         return num;
     else {
+        c = toupper((int)c);
+        if (is_hex) {
+            if (! ((c == '+') || (c == 'X')))
+                return -1;
+        }
         if (res > 2)
             c2 = toupper((int)c2);
         if (res > 3)
             c3 = toupper((int)c3);
-        switch (toupper((int)c)) {
+
+        switch (c) {
         case 'C':
             return num;
         case 'W':
             return num * 2;
         case 'B':
             return num * 512;
-        case 'K':
+        case 'K':       /* kilo or kibi */
             if (2 == res)
                 return num * 1024;
             if (('B' == c2) || ('D' == c2))
                 return num * 1000;
             if (('I' == c2) && (4 == res) && ('B' == c3))
-                return num * 1024;
+                return num * 1024;      /* KiB */
             return -1LL;
-        case 'M':
+        case 'M':       /* mega or mebi */
             if (2 == res)
-                return num * 1048576;
+                return num * 1048576;   /* M */
             if (('B' == c2) || ('D' == c2))
-                return num * 1000000;
+                return num * 1000000;   /* MB */
             if (('I' == c2) && (4 == res) && ('B' == c3))
-                return num * 1048576;
+                return num * 1048576;   /* MiB */
             return -1LL;
-        case 'G':
+        case 'G':       /* giga or gibi */
             if (2 == res)
-                return num * 1073741824;
+                return num * 1073741824;        /* G */
             if (('B' == c2) || ('D' == c2))
-                return num * 1000000000;
+                return num * 1000000000;        /* GB */
             if (('I' == c2) && (4 == res) && ('B' == c3))
-                return num * 1073741824;
+                return num * 1073741824;        /* GiB */
             return -1LL;
-        case 'T':
+        case 'T':       /* tera or tebi */
             if (2 == res)
-                return num * 1099511627776LL;
+                return num * 1099511627776LL;   /* T */
             if (('B' == c2) || ('D' == c2))
-                return num * 1000000000000LL;
+                return num * 1000000000000LL;   /* TB */
             if (('I' == c2) && (4 == res) && ('B' == c3))
-                return num * 1099511627776LL;
+                return num * 1099511627776LL;   /* TiB */
             return -1LL;
-        case 'P':
+        case 'P':       /* peta or pebi */
             if (2 == res)
                 return num * 1099511627776LL * 1024;
             if (('B' == c2) || ('D' == c2))
@@ -3259,14 +3392,30 @@ sg_get_llnum(const char * buf)
             if (('I' == c2) && (4 == res) && ('B' == c3))
                 return num * 1099511627776LL * 1024;
             return -1LL;
-        case 'X':
-            cp = (char *)strchr(b, 'x');
+        case 'E':       /* exa or exbi */
+            if (2 == res)
+                return num * 1099511627776LL * 1024 * 1024;
+            if (('B' == c2) || ('D' == c2))
+                return num * 1000000000000LL * 1000 * 1000;
+            if (('I' == c2) && (4 == res) && ('B' == c3))
+                return num * 1099511627776LL * 1024 * 1024;
+            return -1LL;
+        case 'X':       /* experimental: decimal (left arg) multiplication */
+            cp = (char *)strchr(b2p, 'x');
             if (NULL == cp)
-                cp = (char *)strchr(b, 'X');
+                cp = (char *)strchr(b2p, 'X');
             if (cp) {
                 ll = sg_get_llnum(cp + 1);
                 if (-1LL != ll)
                     return num * ll;
+            }
+            return -1LL;
+        case '+':       /* experimental: decimal (left arg) addition */
+            cp = (char *)strchr(b2p, '+');
+            if (cp) {
+                ll = sg_get_llnum(cp + 1);
+                if (-1LL != ll)
+                    return num + ll;
             }
             return -1LL;
         default:
@@ -3300,6 +3449,217 @@ sg_get_llnum_nomult(const char * buf)
     } else
         res = sscanf(buf, "%" SCNd64 "", &num);
     return (1 == res) ? num : -1;
+}
+
+/* Read ASCII hex bytes or binary from fname (a file named '-' taken as
+ * stdin). If reading ASCII hex then there should be either one entry per
+ * line or a comma, space or tab separated list of bytes. If no_space is
+ * set then a string of ACSII hex digits is expected, 2 per byte. Everything
+ * from and including a '#' on a line is ignored. Returns 0 if ok, or an
+ * error code. If the error code is SG_LIB_LBA_OUT_OF_RANGE then mp_arr
+ * would be exceeded and both mp_arr and mp_arr_len are written to. */
+int
+sg_f2hex_arr(const char * fname, bool as_binary, bool no_space,
+             uint8_t * mp_arr, int * mp_arr_len, int max_arr_len)
+{
+    bool has_stdin, split_line;
+    int fn_len, in_len, k, j, m, fd, err;
+    int off = 0;
+    int ret = 0;
+    unsigned int h;
+    const char * lcp;
+    FILE * fp;
+    struct stat a_stat;
+    char line[512];
+    char carry_over[4];
+
+    if ((NULL == fname) || (NULL == mp_arr) || (NULL == mp_arr_len))
+        return SG_LIB_LOGIC_ERROR;
+    fn_len = strlen(fname);
+    if (0 == fn_len)
+        return SG_LIB_SYNTAX_ERROR;
+    has_stdin = ((1 == fn_len) && ('-' == fname[0]));   /* read from stdin */
+    if (as_binary) {
+        if (has_stdin)
+            fd = STDIN_FILENO;
+        else {
+            fd = open(fname, O_RDONLY);
+            if (fd < 0) {
+                err = errno;
+                pr2serr("unable to open binary file %s: %s\n", fname,
+                         safe_strerror(err));
+                return sg_convert_errno(err);
+            }
+        }
+        k = read(fd, mp_arr, max_arr_len);
+        if (k <= 0) {
+            if (0 == k) {
+                ret = SG_LIB_SYNTAX_ERROR;
+                pr2serr("read 0 bytes from binary file %s\n", fname);
+            } else {
+                ret = sg_convert_errno(errno);
+                pr2serr("read from binary file %s: %s\n", fname,
+                        safe_strerror(errno));
+            }
+            goto bin_fini;
+        }
+        if ((0 == fstat(fd, &a_stat)) && S_ISFIFO(a_stat.st_mode)) {
+            /* pipe; keep reading till error or 0 read */
+            while (k < max_arr_len) {
+                m = read(fd, mp_arr + k, max_arr_len - k);
+                if (0 == m)
+                   break;
+                if (m < 0) {
+                    err = errno;
+                    pr2serr("read from binary pipe %s: %s\n", fname,
+                            safe_strerror(err));
+                    ret = sg_convert_errno(err);
+                    goto bin_fini;
+                }
+                k += m;
+            }
+        }
+        *mp_arr_len = k;
+bin_fini:
+        if (! has_stdin)
+            close(fd);
+        return ret;
+    }
+
+    /* So read the file as ASCII hex */
+    if (has_stdin)
+        fp = stdin;
+    else {
+        fp = fopen(fname, "r");
+        if (NULL == fp) {
+            err = errno;
+            pr2serr("Unable to open %s for reading: %s\n", fname,
+                    safe_strerror(err));
+            ret = sg_convert_errno(err);
+            goto fini;
+        }
+    }
+
+    carry_over[0] = 0;
+    for (j = 0; j < 512; ++j) {
+        if (NULL == fgets(line, sizeof(line), fp))
+            break;
+        in_len = strlen(line);
+        if (in_len > 0) {
+            if ('\n' == line[in_len - 1]) {
+                --in_len;
+                line[in_len] = '\0';
+                split_line = false;
+            } else
+                split_line = true;
+        }
+        if (in_len < 1) {
+            carry_over[0] = 0;
+            continue;
+        }
+        if (carry_over[0]) {
+            if (isxdigit(line[0])) {
+                carry_over[1] = line[0];
+                carry_over[2] = '\0';
+                if (1 == sscanf(carry_over, "%4x", &h))
+                    mp_arr[off - 1] = h;       /* back up and overwrite */
+                else {
+                    pr2serr("%s: carry_over error ['%s'] around line %d\n",
+                            __func__, carry_over, j + 1);
+                    ret = SG_LIB_SYNTAX_ERROR;
+                    goto fini;
+                }
+                lcp = line + 1;
+                --in_len;
+            } else
+                lcp = line;
+            carry_over[0] = 0;
+        } else
+            lcp = line;
+
+        m = strspn(lcp, " \t");
+        if (m == in_len)
+            continue;
+        lcp += m;
+        in_len -= m;
+        if ('#' == *lcp)
+            continue;
+        k = strspn(lcp, "0123456789aAbBcCdDeEfF ,\t");
+        if ((k < in_len) && ('#' != lcp[k]) && ('\r' != lcp[k])) {
+            pr2serr("%s: syntax error at line %d, pos %d\n", __func__,
+                    j + 1, m + k + 1);
+            ret = SG_LIB_SYNTAX_ERROR;
+            goto fini;
+        }
+        if (no_space) {
+            for (k = 0; isxdigit(*lcp) && isxdigit(*(lcp + 1));
+                 ++k, lcp += 2) {
+                if (1 != sscanf(lcp, "%2x", &h)) {
+                    pr2serr("%s: bad hex number in line %d, pos %d\n",
+                            __func__, j + 1, (int)(lcp - line + 1));
+                    ret = SG_LIB_SYNTAX_ERROR;
+                    goto fini;
+                }
+                if ((off + k) >= max_arr_len) {
+                    pr2serr("%s: array length exceeded\n", __func__);
+                    *mp_arr_len = max_arr_len;
+                    ret = SG_LIB_LBA_OUT_OF_RANGE;
+                    goto fini;
+                }
+                mp_arr[off + k] = h;
+            }
+            if (isxdigit(*lcp) && (! isxdigit(*(lcp + 1))))
+                carry_over[0] = *lcp;
+            off += k;
+        } else {
+            for (k = 0; k < 1024; ++k) {
+                if (1 == sscanf(lcp, "%10x", &h)) {
+                    if (h > 0xff) {
+                        pr2serr("%s: hex number larger than 0xff in line "
+                                "%d, pos %d\n", __func__, j + 1,
+                                (int)(lcp - line + 1));
+                        ret = SG_LIB_SYNTAX_ERROR;
+                        goto fini;
+                    }
+                    if (split_line && (1 == strlen(lcp))) {
+                        /* single trailing hex digit might be a split pair */
+                        carry_over[0] = *lcp;
+                    }
+                    if ((off + k) >= max_arr_len) {
+                        pr2serr("%s: array length exceeded\n", __func__);
+                        ret = SG_LIB_LBA_OUT_OF_RANGE;
+                        *mp_arr_len = max_arr_len;
+                        goto fini;
+                    }
+                    mp_arr[off + k] = h;
+                    lcp = strpbrk(lcp, " ,\t");
+                    if (NULL == lcp)
+                        break;
+                    lcp += strspn(lcp, " ,\t");
+                    if ('\0' == *lcp)
+                        break;
+                } else {
+                    if (('#' == *lcp) || ('\r' == *lcp)) {
+                        --k;
+                        break;
+                    }
+                    pr2serr("%s: error in line %d, at pos %d\n", __func__,
+                            j + 1, (int)(lcp - line + 1));
+                    ret = SG_LIB_SYNTAX_ERROR;
+                    goto fini;
+                }
+            }
+            off += (k + 1);
+        }
+    }
+    *mp_arr_len = off;
+    if (stdin != fp)
+        fclose(fp);
+    return 0;
+fini:
+    if (stdin != fp)
+        fclose(fp);
+    return ret;
 }
 
 /* Extract character sequence from ATA words as in the model string
@@ -3350,9 +3710,6 @@ pr2serr(const char * fmt, ...)
 #include <sys/param.h>
 #elif defined(SG_LIB_WIN32)
 #include <windows.h>
-
-static bool got_page_size = false;
-static uint32_t win_page_size;
 #endif
 
 uint32_t
@@ -3361,6 +3718,9 @@ sg_get_page_size(void)
 #if defined(HAVE_SYSCONF) && defined(_SC_PAGESIZE)
     return sysconf(_SC_PAGESIZE); /* POSIX.1 (was getpagesize()) */
 #elif defined(SG_LIB_WIN32)
+    static bool got_page_size = false;
+    static uint32_t win_page_size;
+
     if (! got_page_size) {
         SYSTEM_INFO si;
 
@@ -3525,7 +3885,6 @@ sg_lib_version()
    Set text mode on fd. Does nothing in Unix. Returns negative number on
    failure. */
 
-#include <unistd.h>
 #include <fcntl.h>
 
 int

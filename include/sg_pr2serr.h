@@ -6,6 +6,8 @@
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 /* These are convenience functions that replace the somewhat long-winded
@@ -32,6 +34,16 @@ extern "C" {
 
 
 #if defined(__GNUC__) || defined(__clang__)
+#ifdef SG_LIB_MINGW
+/* MinGW uses Microsoft's printf */
+int pr2serr(const char * fmt, ...);
+
+int pr2ws(const char * fmt, ...);
+
+int sg_scnpr(char * cp, int cp_max_len, const char * fmt, ...);
+
+#else   /* GNU/clang other than MinGW */
+
 int pr2serr(const char * fmt, ...)
         __attribute__ ((format (printf, 1, 2)));
 
@@ -40,8 +52,9 @@ int pr2ws(const char * fmt, ...)
 
 int sg_scnpr(char * cp, int cp_max_len, const char * fmt, ...)
                  __attribute__ ((format (printf, 3, 4)));
+#endif
 
-#else
+#else   /* not GNU (and not clang) */
 
 int pr2serr(const char * fmt, ...);
 

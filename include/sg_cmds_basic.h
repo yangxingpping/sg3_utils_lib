@@ -2,10 +2,12 @@
 #define SG_CMDS_BASIC_H
 
 /*
- * Copyright (c) 2004-2018 Douglas Gilbert.
+ * Copyright (c) 2004-2019 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 /*
@@ -107,7 +109,7 @@ int sg_ll_mode_select6_v2(int sg_fd, bool pf, bool rtd, bool sp,
  * -1 -> other failure */
 int sg_ll_mode_select10(int sg_fd, bool pf, bool sp, void * paramp,
                         int param_len, bool noisy, int verbose);
-/* v2 adds RTD (revert to defaults) bi, added in spc5r11 */
+/* v2 adds RTD (revert to defaults) bit, added in spc5r11 */
 int sg_ll_mode_select10_v2(int sg_fd, bool pf, bool rtd, bool sp,
                            void * paramp, int param_len, bool noisy,
                            int verbose);
@@ -291,8 +293,8 @@ int sg_msense_calc_length(const uint8_t * resp, int resp_len,
 
 /* Fetches current, changeable, default and/or saveable modes pages as
  * indicated by pcontrol_arr for given pg_code and sub_pg_code. If
- * mode6==0 then use MODE SENSE (10) else use MODE SENSE (6). If
- * flexible set and mode data length seems wrong then try and
+ * mode6 is true then use MODE SENSE (6) else use MODE SENSE (10). If
+ * flexible true and mode data length seems wrong then try and
  * fix (compensating hack for bad device or driver). pcontrol_arr
  * should have 4 elements for output of current, changeable, default
  * and saved values respectively. Each element should be NULL or
@@ -341,8 +343,8 @@ const char * sg_cmds_version();
  * output via 'o_sense_cat' pointer (if not NULL). Note that several sense
  * categories also have data in bytes received; -2 is still returned. */
 int sg_cmds_process_resp(struct sg_pt_base * ptvp, const char * leadin,
-                         int pt_res, int mx_di_len, const uint8_t * sense_b,
-                         bool noisy, int verbose, int * o_sense_cat);
+                         int pt_res, bool noisy, int verbose,
+                         int * o_sense_cat);
 
 /* NVMe devices use a different command set. This function will return true
  * if the device associated with 'pvtp' is a NVME device, else it will

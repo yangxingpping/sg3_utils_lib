@@ -35,8 +35,9 @@ libsgutils2_la_SOURCES += sg_pt_osf1.c
 endif
 
 if DEBUG
-# This does nothing at the moment but may be useful for adding
-DBG_CFLAGS = -Wextra -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wnull-dereference -Wshadow -Wjump-misses-init
+# This is active if --enable-debug given to ./configure
+# removed -Wduplicated-branches because needs gcc-8
+DBG_CFLAGS = -Wextra -Wmisleading-indentation -Wduplicated-cond -Wlogical-op -Wnull-dereference -Wshadow -Wjump-misses-init
 DBG_CPPFLAGS = -DDEBUG
 else
 DBG_CFLAGS =
@@ -44,7 +45,7 @@ DBG_CPPFLAGS =
 endif
 
 # For C++/clang testing
-## CC = gcc-8
+## CC = gcc-9
 ## CC = g++
 ## CC = clang
 ## CC = clang++
@@ -62,7 +63,7 @@ AM_CFLAGS = -Wall -W $(DBG_CFLAGS)
 
 lib_LTLIBRARIES = libsgutils2.la
 
-libsgutils2_la_LDFLAGS = -version-info 2:0:0 -no-undefined
+libsgutils2_la_LDFLAGS = -version-info 2:0:0 -no-undefined -release ${PACKAGE_VERSION}
 
 libsgutils2_la_LIBADD = @GETOPT_O_FILES@
 libsgutils2_la_DEPENDENCIES = @GETOPT_O_FILES@

@@ -1,8 +1,10 @@
 /*
- * Copyright (c) 2007-2018 Douglas Gilbert.
+ * Copyright (c) 2007-2020 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <stdlib.h>
@@ -17,7 +19,8 @@
 #include "sg_lib_data.h"
 
 
-const char * sg_lib_version_str = "2.53 20180712";/* spc5r19, sbc4r15 */
+const char * sg_lib_version_str = "2.72 20200125";
+/* spc5r22, sbc4r17, zbc2r04 */
 
 
 /* indexed by pdt; those that map to own index do not decay */
@@ -101,7 +104,8 @@ struct sg_lib_value_name_t sg_lib_normal_opcodes[] = {
     {0x37, 0, "Read defect data(10)"},
                         /* SBC-3 r31 recommends Read defect data(12) */
     {0x37, PDT_MCHANGER, "Initialize element status with range"},
-    {0x38, 0, "Medium scan"},
+    {0x38, 0, "Format with preset scan"},
+    {0x38, PDT_OCRW, "Medium scan"},
     {0x39, 0, "Compare"},               /* obsolete in SPC-4 r11 */
     {0x3a, 0, "Copy and verify"},       /* obsolete in SPC-4 r11 */
     {0x3b, 0, "Write buffer"},
@@ -273,6 +277,7 @@ struct sg_lib_value_name_t sg_lib_read_pos_arr[] = {
 /* Maintenance in [0xa3] service actions */
 struct sg_lib_value_name_t sg_lib_maint_in_arr[] = {
     {0x0, PDT_SAC, "Report assigned/unassigned p_extent"},
+    {0x0, PDT_ADC, "Report automation device attributes"},
     {0x1, PDT_SAC, "Report component device"},
     {0x2, PDT_SAC, "Report component device attachments"},
     {0x3, PDT_SAC, "Report peripheral device"},
@@ -302,6 +307,7 @@ struct sg_lib_value_name_t sg_lib_maint_in_arr[] = {
 /* Maintenance out [0xa4] service actions */
 struct sg_lib_value_name_t sg_lib_maint_out_arr[] = {
     {0x0, PDT_SAC, "Add peripheral device / component device"},
+    {0x0, PDT_ADC, "Set automation device attribute"},
     {0x1, PDT_SAC, "Attach to component device"},
     {0x2, PDT_SAC, "Exchange p_extent"},
     {0x3, PDT_SAC, "Exchange peripheral device / component device"},
@@ -340,6 +346,7 @@ struct sg_lib_value_name_t sg_lib_serv_in12_arr[] = {
 
 /* Service action out(12) [0xa9] service actions */
 struct sg_lib_value_name_t sg_lib_serv_out12_arr[] = {
+    {0x1f, PDT_ADC, "Set medium attribute"},
     {0xff, 0, "Impossible command name"},
     {0xffff, 0, NULL},
 };
@@ -524,6 +531,10 @@ struct sg_lib_value_name_t sg_lib_zoning_out_arr[] = {
 /* Zoning in [0x95] service actions */
 struct sg_lib_value_name_t sg_lib_zoning_in_arr[] = {
     {0x0, PDT_ZBC, "Report zones"},
+    {0x6, PDT_ZBC, "Report realms"},            /* zbc2r04 */
+    {0x7, PDT_ZBC, "Report zone domains"},      /* zbc2r04 */
+    {0x8, PDT_ZBC, "Zone activate"},            /* zbc2r04 */
+    {0x9, PDT_ZBC, "Zone query"},               /* zbc2r04 */
     {0xffff, 0, NULL},
 };
 
@@ -623,7 +634,7 @@ struct sg_lib_value_name_t sg_lib_read_attr_arr[] = {
 
 /* A conveniently formatted list of SCSI ASC/ASCQ codes and their
  * corresponding text can be found at: www.t10.org/lists/asc-num.txt
- * The following should match asc-num.txt dated 20150423 */
+ * The following should match asc-num.txt dated 20191014 */
 
 #ifdef SG_SCSI_STRINGS
 struct sg_lib_asc_ascq_range_t sg_lib_asc_ascq_range[] =
@@ -713,6 +724,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x04,0x21,"Logical unit not ready, hard reset required"},
     {0x04,0x22,"Logical unit not ready, power cycle required"},
     {0x04,0x23,"Logical unit not ready, affiliation required"},
+    {0x04,0x24,"Depopulation in progress"},             /* spc5r15 */
     {0x05,0x00,"Logical unit does not respond to selection"},
     {0x06,0x00,"No reference position found"},
     {0x07,0x00,"Multiple peripheral devices selected"},
@@ -748,6 +760,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x0B,0x11,"Warning - low operating humidity limit exceeded"},
     {0x0B,0x12,"Warning - microcode security at risk"},
     {0x0B,0x13,"Warning - microcode digital signature validation failure"},
+    {0x0B,0x14,"Warning - physical element status change"},     /* spc5r15 */
     {0x0C,0x00,"Write error"},
     {0x0C,0x01,"Write error - recovered with auto reallocation"},
     {0x0C,0x02,"Write error - auto reallocation failed"},
@@ -880,6 +893,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x21,0x06,"Attempt to read invalid data"},
     {0x21,0x07,"Read boundary violation"},
     {0x21,0x08,"Misaligned write command"},
+    {0x21,0x09,"Attempt to access gap zone"},
     {0x22,0x00,"Illegal function (use 20 00, 24 00, or 26 00)"},
     {0x23,0x00,"Invalid token operation, cause not reportable"},
     {0x23,0x01,"Invalid token operation, unsupported token type"},
@@ -926,6 +940,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x26,0x13,"Application tag mode page is invalid"},
     {0x26,0x14,"Tape stream mirroring prevented"},
     {0x26,0x15,"Copy source or copy destination not authorized"},
+    {0x26,0x16,"Fast copy not possible"},
     {0x27,0x00,"Write protected"},
     {0x27,0x01,"Hardware write protected"},
     {0x27,0x02,"Logical unit software write protected"},
@@ -987,6 +1002,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x2C,0x0F,"Stream not open"},
     {0x2C,0x10,"Unwritten data in zone"},
     {0x2C,0x11,"Descriptor format sense data required"},
+    {0x2C,0x12,"Zone is inactive"},
     {0x2D,0x00,"Overwrite error on update in place"},
     {0x2E,0x00,"Insufficient time for operation"},
     {0x2E,0x01,"Command timeout before processing"},
@@ -1018,6 +1034,7 @@ struct sg_lib_asc_ascq_t sg_lib_asc_ascq[] =
     {0x31,0x01,"Format command failed"},
     {0x31,0x02,"Zoned formatting failed due to spare linking"},
     {0x31,0x03,"Sanitize command failed"},
+    {0x31,0x04,"Depopulation failed"},          /* spc5r15 */
     {0x32,0x00,"No defect spare location available"},
     {0x32,0x01,"Defect list update failure"},
     {0x33,0x00,"Tape length error"},
@@ -1490,7 +1507,7 @@ const char * sg_lib_pdt_strs[32] = {    /* should have 2**5 elements */
 
 const char * sg_lib_transport_proto_strs[] =
 {
-    "Fibre Channel Protocol for SCSI (FCP-4)",
+    "Fibre Channel Protocol for SCSI (FCP-5)",  /* now at fcp5r01 */
     "SCSI Parallel Interface (SPI-5)",  /* obsolete in spc5r01 */
     "Serial Storage Architecture SCSI-3 Protocol (SSA-S3P)",
     "Serial Bus Protocol for IEEE 1394 (SBP-3)",
@@ -1552,6 +1569,7 @@ struct sg_lib_simple_value_name_t sg_lib_nvme_admin_cmd_arr[] =
     {0x81, "Security Send"},
     {0x82, "Security Receive"},
     {0x84, "Sanitize"},                 /* last NVM specific in 1.3a */
+    {0x86, "Get LBA status"},           /* NVM specific, new in 1.4 */
     /* Vendor specific 0xc0 to 0xff */
     {0xffff, NULL},                     /* Sentinel */
 };
@@ -1627,7 +1645,11 @@ struct sg_lib_value_name_t sg_lib_nvme_cmd_status_arr[] =
     {0x1d, 11, "Sanitize in progress"},
     {0x1e,  5, "SGL data block granularity invalid"},
     {0x1f,  5, "Command not supported for queue in CMB"},
+    {0x20,  18, "Namespace is write protected"},        /* NVMe 1.4 */
+    {0x21,  6, "Command interrupted"},                  /* NVMe 1.4 */
+    {0x22,  5, "Transient transport error"},            /* NVMe 1.4 */
 
+    /* 0x80 - 0xbf: I/O command set specific */
     /* Generic command status values, NVM (I/O) Command Set */
     {0x80, 12, "LBA out of range"},
     {0x81,  3, "Capacity exceeded"},
@@ -1670,8 +1692,11 @@ struct sg_lib_value_name_t sg_lib_nvme_cmd_status_arr[] =
     {0x11e,18, "Boot partition write prohibited"},
     {0x11f, 5, "Invalid controller identifier"},
     {0x120, 5, "Invalid secondary controller state"},
-    {0x121, 5, "Invalid number of controller resorces"},
-    {0x122, 5, "Invalid resorce identifier"},
+    {0x121, 5, "Invalid number of controller resources"},
+    {0x122, 5, "Invalid resource identifier"},
+    {0x123, 5, "Sanitize prohibited while PM enabled"},         /* NVMe 1.4 */
+    {0x124, 5, "ANA group identifier invalid"},                 /* NVMe 1.4 */
+    {0x125, 5, "ANA attach failed"},                            /* NVMe 1.4 */
 
     /* Command specific status values, Status Code Type (SCT): 1h
      * for NVM (I/O) Command Set */

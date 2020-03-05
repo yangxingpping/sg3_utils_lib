@@ -2,10 +2,12 @@
 #define SG_LIB_H
 
 /*
- * Copyright (c) 2004-2018 Douglas Gilbert.
+ * Copyright (c) 2004-2019 Douglas Gilbert.
  * All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the BSD_LICENSE file.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 /*
@@ -178,10 +180,10 @@ struct sg_scsi_sense_hdr {
     uint8_t sense_key;
     uint8_t asc;
     uint8_t ascq;
-    uint8_t byte4;
-    uint8_t byte5;
+    uint8_t byte4;      /* descriptor: SDAT_OVFL; fixed: lower three ... */
+    uint8_t byte5;      /* ... bytes of INFO field */
     uint8_t byte6;
-    uint8_t additional_length;
+    uint8_t additional_length;  /* zero for fixed format sense data */
 };
 
 /* Maps the salient data from a sense buffer which is in either fixed or
@@ -269,6 +271,18 @@ int sg_get_designation_descriptor_str(const char * leadin,
                                       bool print_assoc, bool do_long,
                                       int blen, char * b);
 
+/* Expects a T10 UUID designator (as found in the Device Identification VPD
+ * page) pointed to by 'dp'. To not produce an error string in 'b', c_set
+ * should be 1 (binary) and dlen should be 18. Currently T10 only supports
+ * locally assigned UUIDs. Writes output to string 'b' of no more than blen
+ * bytes and returns the number of bytes actually written to 'b' but doesn't
+ * count the trailing null character it always appends (if blen > 0). 'lip'
+ * is lead-in string (on each line) than may be NULL. skip_prefix avoids
+ * outputting: '   Locally assigned UUID: ' before the UUID. */
+int sg_t10_uuid_desig2str(const uint8_t * dp, int dlen, int c_set,
+                          bool do_long, bool skip_prefix,
+                          const char * lip, int blen, char * b);
+
 /* Yield string associated with peripheral device type (pdt). Returns
  * 'buff'. If 'pdt' out of range yields "bad pdt" string. */
 char * sg_get_pdt_str(int pdt, int buff_len, char * buff);
@@ -332,7 +346,7 @@ const char * sg_get_sfs_str(uint16_t sfs_code, int peri_type, int buff_len,
  * structures that are sent across the wire. The 'FIS register' structure is
  * used to move a command from a SATA host to device, but the ATA 'command'
  * is not the first byte. So it is harder to say what will happen if a
- * FIS structure is presented as a SCSI command, hopfully there is a low
+ * FIS structure is presented as a SCSI command, hopefully there is a low
  * probability this function will yield true in that case. */
 bool sg_is_scsi_cdb(const uint8_t * cdbp, int clen);
 
@@ -364,9 +378,21 @@ extern FILE * sg_warnings_strm;
 
 void sg_set_warnings_strm(FILE * warnings_strm);
 
-/* The following "print" functions send ACSII to 'sg_warnings_strm' file
+/* Given a SCSI command pointed to by cdbp of sz bytes this function forms a
+ * SCSI command in ASCII hex surrounded by square brackets in 'b'. 'b' is at
+ * least blen bytes long. If cmd_name is true then the command is prefixed
+ * by its SCSI command name (e.g.  "VERIFY(10) [2f ...]". The command is
+ * shown as spaced separated pairs of hexadecimal digits (i.e. 0-9, a-f).
+ * Each pair represents byte. The leftmost pair of digits is cdbp[0] . If
+ * sz <= 0 then this function tries to guess the length of the command. */
+char *
+sg_get_command_str(const uint8_t * cdbp, int sz, bool cmd_name, int blen,
+                   char * b);
+
+/* The following "print" functions send ASCII to 'sg_warnings_strm' file
  * descriptor (default value is stderr). 'leadin' is string prepended to
  * each line printed out, NULL treated as "". */
+void sg_print_command_len(const uint8_t * command, int len);
 void sg_print_command(const uint8_t * command);
 void sg_print_scsi_status(int scsi_status);
 
@@ -450,6 +476,8 @@ bool sg_exit2str(int exit_status, bool longer, int b_len, char * b);
 #define SG_LIB_CAT_TASK_ABORTED 29 /* SCSI status, this command aborted by? */
 #define SG_LIB_CONTRADICT 31    /* error involving two or more cl options */
 #define SG_LIB_LOGIC_ERROR 32   /* unexpected situation in code */
+#define SG_LIB_WINDOWS_ERR 34   /* Windows error number don't fit in 7 bits so
+                                 * map to a single value for exit statuses */
 #define SG_LIB_OK_FALSE 36      /* no error, reporting false (cf. no error,
                                  * reporting true is SG_LIB_OK_TRUE(0) ) */
 #define SG_LIB_CAT_PROTECTION 40 /* subset of aborted command (for PI, DIF)
@@ -553,6 +581,16 @@ void hex2stderr(const uint8_t * b_str, int len, int no_ascii);
 int hex2str(const uint8_t * b_str, int len, const char * leadin, int format,
             int cb_len, char * cbp);
 
+/* Read ASCII hex bytes or binary from fname (a file named '-' taken as
+ * stdin). If reading ASCII hex then there should be either one entry per
+ * line or a comma, space or tab separated list of bytes. If no_space is
+ * set then a string of ACSII hex digits is expected, 2 per byte. Everything
+ * from and including a '#' on a line is ignored. Returns 0 if ok, or an
+ * error code. If the error code is SG_LIB_LBA_OUT_OF_RANGE then mp_arr
+ * would be exceeded and both mp_arr and mp_arr_len are written to. */
+int sg_f2hex_arr(const char * fname, bool as_binary, bool no_space,
+                 uint8_t * mp_arr, int * mp_arr_len, int max_arr_len);
+
 /* Returns true when executed on big endian machine; else returns false.
  * Useful for displaying ATA identify words (which need swapping on a
  * big endian machine). */
@@ -560,7 +598,7 @@ bool sg_is_big_endian();
 
 /* Returns true if byte sequence starting at bp with a length of b_len is
  * all zeros (for sg_all_zeros()) or all 0xff_s (for sg_all_ffs());
- * otherwise returns false. If bp is NULL ir b_len <= 0 returns false. */
+ * otherwise returns false. If bp is NULL or b_len <= 0 returns false. */
 bool sg_all_zeros(const uint8_t * bp, int b_len);
 bool sg_all_ffs(const uint8_t * bp, int b_len);
 
@@ -587,13 +625,14 @@ int sg_ata_get_chars(const uint16_t * word_arr, int start_word,
 void dWordHex(const uint16_t * words, int num, int no_ascii, bool swapb);
 
 /* If the number in 'buf' can not be decoded or the multiplier is unknown
- * then -1 is returned. Accepts a hex prefix (0x or 0X) or a 'h' (or 'H')
- * suffix. Otherwise a decimal multiplier suffix may be given. Recognised
- * multipliers: c C  *1;  w W  *2; b  B *512;  k K KiB  *1,024;
- * KB  *1,000;  m M MiB  *1,048,576; MB *1,000,000; g G GiB *1,073,741,824;
- * GB *1,000,000,000 and <n>x<m> which multiplies <n> by <m> . Ignore leading
- * spaces and tabs; accept comma, hyphen, space, tab and hash as terminator.
- */
+ * then -1 is returned. Accepts a hex prefix (0x or 0X) or a decimal
+ * multiplier suffix (as per GNU's dd (since 2002: SI and IEC 60027-2)).
+ * Main (SI) multipliers supported: K, M, G. Ignore leading spaces and
+ * tabs; accept comma, hyphen, space, tab and hash as terminator.
+ * Handles zero and positive values up to 2**31-1 .
+ * Experimental: left argument (must in with hexadecimal digit) added
+ * to, or multiplied, by right argument. No embedded spaces.
+ * Examples: '3+1k' (evaluates to 1027) and '0xf+0x3'. */
 int sg_get_num(const char * buf);
 
 /* If the number in 'buf' can not be decoded then -1 is returned. Accepts a
@@ -604,12 +643,14 @@ int sg_get_num(const char * buf);
 int sg_get_num_nomult(const char * buf);
 
 /* If the number in 'buf' can not be decoded or the multiplier is unknown
- * then -1LL is returned. Accepts a hex prefix (0x or 0X) or a 'h' (or 'H')
- * suffix. Otherwise a decimal multiplier suffix may be given. In addition
- * to supporting the multipliers of sg_get_num(), this function supports:
- * t T TiB  *(2**40); TB *(10**12); p P PiB  *(2**50); PB  *(10**15) .
- * Ignore leading spaces and tabs; accept comma, hyphen, space, tab and hash
- * as terminator. */
+ * then -1LL is returned. Accepts a hex prefix (0x or 0X), hex suffix
+ * (h or H), or a decimal multiplier suffix (as per GNU's dd (since 2002:
+ * SI and IEC 60027-2)).  Main (SI) multipliers supported: K, M, G, T, P
+ * and E. Ignore leading spaces and tabs; accept comma, hyphen, space, tab
+ * and hash as terminator. Handles zero and positive values up to 2**63-1 .
+ * Experimental: the left argument (must end in with hexadecimal digit)
+ * added to, or multiplied by, the right argument. No embedded spaces.
+ * Examples: '3+1k' (evaluates to 1027) and '0xf+0x3'. */
 int64_t sg_get_llnum(const char * buf);
 
 /* If the number in 'buf' can not be decoded then -1 is returned. Accepts a
